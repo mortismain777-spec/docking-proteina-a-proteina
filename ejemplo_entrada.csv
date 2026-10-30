@@ -1,0 +1,6 @@
+tipo,identificador,nombre_comun,categoria
+RBP,P09651,HNRNPA1,
+RBP,P22626,HNRNPA2B1,
+receptor,P00533,EGFR,A
+receptor,P04626,ERBB2,B
+receptor,P08581,MET,C
