@@ -89,9 +89,13 @@ class BatchRunner:
             self.callback({"kind": "message", "text": f"Enviando {job['jobname']} ({number}/{len(pending)})"})
             try:
                 with (attempt / "console.log").open("w", encoding="utf-8") as console:
+                    environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+                    local_browsers = Path(__file__).resolve().parent / ".playwright-browsers"
+                    if local_browsers.is_dir():
+                        environment["PLAYWRIGHT_BROWSERS_PATH"] = str(local_browsers)
                     self.process = subprocess.Popen(command, cwd=str(self.script.parent), stdout=subprocess.PIPE,
                                                     stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-                                                    env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                                                    env=environment,
                                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                     for line in self.process.stdout:
                         console.write(line)

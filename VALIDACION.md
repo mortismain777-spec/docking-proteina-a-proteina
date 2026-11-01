@@ -17,3 +17,13 @@ Límites pendientes de comprobar:
 - No se realizó validación científica del protocolo ni de los controles. La albúmina y la ubiquitina son referencias provisionales.
 
 Antes de un lote grande, instalar el motor según el README y comprobar un único par y su score manualmente en HDOCK. Mantener los datos del lote fuera del control de versiones.
+
+## Actualización del 1 de noviembre de 2026
+
+- Se instaló el motor externo, Playwright y Chromium; el usuario envió correctamente dos trabajos a HDOCK y recibió sus tokens.
+- Se corrigió la lectura de scores presentados en filas y se verificó con las páginas reales de los dos trabajos.
+- Se sustituyó la etiqueta RBP por Ligando en la interfaz, ejemplos y exportaciones. CSV y lotes anteriores siguen siendo compatibles y conservan sus identificadores, estructuras, tokens y scores.
+- 15 pruebas automatizadas correctas. Se abrió el lote anterior en la aplicación y se comprobó la columna Ligando con sus dos scores conservados, sin modificar ese lote ni enviar nuevos trabajos.
+- El navegador puede instalarse dentro del proyecto; el adaptador utiliza esa ruta cuando existe para evitar depender de la caché de otro contexto de ejecución.
+
+Esta actualización valida el funcionamiento del flujo, no la interpretación científica de los scores ni la idoneidad de los controles.

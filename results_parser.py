@@ -13,7 +13,7 @@ from openpyxl.styles import Font, PatternFill
 from data_fetcher import session
 from job_runner import accepted, latest_jobs
 
-COLUMNS = ["RBP", "Receptor", "Categoria_Receptor", "Docking_Score", "Job_Token", "URL_Resultado", "Estado", "Error", "Jobname"]
+COLUMNS = ["Ligando", "Receptor", "Categoria_Receptor", "Docking_Score", "Job_Token", "URL_Resultado", "Estado", "Error", "Jobname"]
 
 
 class Tables(HTMLParser):
@@ -46,7 +46,7 @@ class Tables(HTMLParser):
 
 
 def best_score(html: str):
-    """Sólo usa columnas rotuladas Docking Score; ignora confianza y RMSD."""
+    """Lee Docking Score en filas o columnas; ignora confianza y RMSD."""
     parser = Tables()
     parser.feed(html)
     scores = []
@@ -55,7 +55,22 @@ def best_score(html: str):
         for row in table:
             labels = [re.sub(r"[^a-z]", "", value.lower()) for value in row]
             if "dockingscore" in labels:
-                index = labels.index("dockingscore")
+                position = labels.index("dockingscore")
+                # HDOCK presenta una fila por métrica y una columna por modelo.
+                values = row[position + 1:]
+                row_scores = []
+                for value in values:
+                    try:
+                        number = float(value.replace("−", "-"))
+                        if math.isfinite(number):
+                            row_scores.append(number)
+                    except ValueError:
+                        pass
+                if row_scores:
+                    scores.extend(row_scores)
+                    index = None
+                else:
+                    index = position
                 continue
             if index is not None and len(row) > index:
                 try:
@@ -91,7 +106,7 @@ def summary(jobs: list, log_path: Path, results: dict) -> pd.DataFrame:
         state = "preparado" if not log else "error_envio"
         if accepted(log):
             state = result.get("state", "enviado")
-        rows.append(dict(zip(COLUMNS, [job["RBP"], job["Receptor"], job["Categoria_Receptor"],
+        rows.append(dict(zip(COLUMNS, [job.get("Ligando", job.get("RBP", "")), job["Receptor"], job["Categoria_Receptor"],
             result.get("score"), log.get("token", ""), log.get("result_url", ""), state,
             result.get("error", log.get("error", "")), job["jobname"]])))
     frame = pd.DataFrame(rows, columns=COLUMNS)

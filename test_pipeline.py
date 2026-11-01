@@ -13,7 +13,7 @@ from pipeline import Pipeline, protein_key, read_inputs
 from results_parser import best_score, export
 
 PDB = "ATOM      1  CA  ALA A   1      12.000  13.000  14.000  1.00 90.00           C  \nEND\n"
-INPUT = "tipo,identificador,nombre_comun,categoria\nRBP,P09651,RBP1,\nreceptor,P00533,EGFR,A\n"
+INPUT = "tipo,identificador,nombre_comun,categoria\nligando,P09651,Ligando1,\nreceptor,P00533,EGFR,A\n"
 HTML = "<table><tr><th>Rank</th><th>Docking <b>Score</b></th><th>Confidence Score</th></tr><tr><td>1</td><td>-120.5</td><td>99</td></tr><tr><td>2</td><td>-180.25</td><td>10</td></tr></table>"
 
 
@@ -34,9 +34,47 @@ class PipelineTests(unittest.TestCase):
         return Pipeline.create(self.root / "run", read_inputs(INPUT), 9606, {}, dummy, "")
 
     def test_input_dedup_and_conflict(self):
-        self.assertEqual(len(read_inputs(INPUT + "RBP,P09651,RBP1,\n")), 2)
+        self.assertEqual(len(read_inputs(INPUT + "RBP,P09651,Ligando1,\n")), 2)
         with self.assertRaises(ValueError):
             read_inputs(INPUT + "receptor,P00533,EGFR,B\n")
+
+    def test_ligando_accepts_legacy_csv_and_preserves_structure_keys(self):
+        current = read_inputs(INPUT)
+        legacy = read_inputs(INPUT.replace('ligando,', 'RBP,'))
+        self.assertEqual(current, legacy)
+        self.assertEqual(current[0]['tipo'], 'ligando')
+        self.assertEqual(protein_key(current[0]), 'RBP:P09651')
+
+    def test_legacy_batch_keeps_jobnames_tokens_scores_and_local_pdb(self):
+        pipeline = self.pipeline()
+        path = self.pdb()
+        with patch('pipeline.StructureFetcher.fetch', return_value={
+            'path': str(path), 'sha256': sha256(path), 'source': 'fixture'
+        }):
+            pipeline.prepare()
+        original_names = [job['jobname'] for job in pipeline.config['jobs']]
+        pipeline.config['proteins'][0]['tipo'] = 'RBP'
+        pipeline.config['local_pdb']['RBP:P09651'] = str(path)
+        for job in pipeline.config['jobs']:
+            job['RBP'] = job.pop('Ligando')
+        pipeline.config['results'][original_names[0]] = {
+            'token': 'old_token', 'score': -206.95, 'state': 'completado'
+        }
+        BatchRunner('', sys.executable, pipeline.directory)._append({
+            'jobname': original_names[0], 'token': 'old_token', 'ok': True,
+            'result_url': 'http://hdock.phys.hust.edu.cn/data/old_token/'
+        })
+        pipeline.save()
+        restored = Pipeline.load(pipeline.directory)
+        self.assertEqual(restored.config['proteins'][0]['tipo'], 'ligando')
+        self.assertEqual(restored.table().iloc[0]['Ligando'], 'P09651')
+        self.assertEqual(restored.table().iloc[0]['Job_Token'], 'old_token')
+        self.assertEqual(restored.table().iloc[0]['Docking_Score'], -206.95)
+        self.assertEqual(restored.config['local_pdb']['RBP:P09651'], str(path))
+        with patch('pipeline.StructureFetcher.fetch', side_effect=AssertionError('No redescargar')):
+            restored.prepare()
+        self.assertEqual([job['jobname'] for job in restored.config['jobs']], original_names)
+        self.assertEqual(restored.table().iloc[0]['Job_Token'], 'old_token')
 
     def test_gene_resolution_rejects_ambiguity(self):
         client = Mock()
@@ -97,6 +135,14 @@ class PipelineTests(unittest.TestCase):
         self.assertIsNone(best_score("<p>Running -999</p>"))
         self.assertIsNone(best_score(HTML.replace("Docking <b>Score</b>", "Confidence Score")))
         self.assertIsNone(best_score("<table><tr><th>Docking Score</th></tr><tr><td>NaN</td></tr></table>"))
+
+    def test_hdock_scores_in_metric_rows(self):
+        html = ("<table><tr><th>Rank</th><td>1</td><td>2</td></tr>"
+                "<tr><th>Docking Score</th><td>-206.95</td><td>-177.55</td></tr>"
+                "<tr><th>Confidence Score</th><td>0.7575</td><td>0.6344</td></tr>"
+                "<tr><th>Ligand rmsd</th><td>67.75</td><td>78.49</td></tr></table>")
+        self.assertEqual(best_score(html), -206.95)
+        self.assertEqual(best_score(html.replace('-177.55', '-250.00')), -250.00)
 
     def test_export_sort_and_formula_safety(self):
         import pandas as pd

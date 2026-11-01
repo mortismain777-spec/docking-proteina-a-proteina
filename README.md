@@ -1,6 +1,6 @@
 # Docking Matrix: proteína–proteína
 
-Aplicación de escritorio en Python 3.9+ y Tkinter para preparar una matriz RBP × receptor, delegar envíos a HDOCK mediante `hdock_batch` y exportar resultados a CSV/Excel. Interfaz y comentarios en español.
+Aplicación de escritorio en Python 3.9+ y Tkinter para preparar una matriz ligando × receptor, delegar envíos a HDOCK mediante `hdock_batch` y exportar resultados a CSV/Excel. Ambos participantes son proteínas. Interfaz y comentarios en español.
 
 ## 1. Instalación
 
@@ -25,6 +25,15 @@ git clone https://github.com/SidSin0809/hdock_batch.git
 .venv\Scripts\python -m playwright install chromium
 ```
 
+Si el proceso no encuentra Chromium en la caché del usuario, puedes instalarlo dentro del proyecto:
+
+```powershell
+$env:PLAYWRIGHT_BROWSERS_PATH = "$PWD\.playwright-browsers"
+.venv\Scripts\python -m playwright install --only-shell chromium
+```
+
+Cuando existe `.playwright-browsers`, el adaptador establece esa ruta explícitamente al invocar el motor. El directorio está excluido de Git. Tras cambiar el adaptador, cierra y abre la aplicación y usa «Abrir lote / reanudar» para conservar el lote existente.
+
 Conserva el script externo separado. La aplicación lo invoca mediante `subprocess`, con argumentos separados, sin `shell=True`, así:
 
 ```text
@@ -39,14 +48,14 @@ Carga `ejemplo_entrada.csv`, edita el CSV en pantalla o pega listas (un identifi
 
 ```csv
 tipo,identificador,nombre_comun,categoria
-RBP,P09651,HNRNPA1,
-RBP,P22626,HNRNPA2B1,
+ligando,P09651,HNRNPA1,
+ligando,P22626,HNRNPA2B1,
 receptor,P00533,EGFR,A
 receptor,P04626,ERBB2,B
 receptor,P08581,MET,C
 ```
 
-- `tipo`: RBP o receptor. `categoria`: A/B/C para candidatos, `control` para controles personalizados. Se preservan como filas independientes.
+- `tipo`: `ligando` o `receptor`. `categoria`: A/B/C para receptores candidatos, `control` para controles personalizados; dejar vacía para ligandos. Se preservan como filas independientes. Los CSV antiguos con `RBP` siguen aceptándose como equivalentes de `ligando`, sin distinguir mayúsculas y minúsculas.
 - `identificador`: accession UniProt o símbolo exacto del gen. Los nombres de genes se resuelven con UniProt REST y el TaxID visible en pantalla (9606 humano por defecto), priorizando entradas curadas (`reviewed:true`); si no hay ninguna, se buscan también las no curadas. Si hay varias coincidencias en la búsqueda utilizada se exige un accession; no se elige una proteína arbitrariamente.
 - Los duplicados exactos se eliminan por tipo/identificador; los metadatos contradictorios se rechazan. Dos alias que resuelvan al mismo accession se deben unificar en la entrada antes de preparar el lote.
 - Descarga: `https://alphafold.ebi.ac.uk/api/prediction/{accession}` → `pdbUrl`. Si hay varios modelos, se requiere elección mediante PDB local para no tomar un fragmento arbitrario.
@@ -78,7 +87,7 @@ Si tu red usa una CA institucional y aparece `CERTIFICATE_VERIFY_FAILED`, config
 
 Se añade automáticamente albúmina bovina UniProt **P02769** como control de referencia provisional; el usuario puede añadir ubiquitina **PDB 1UBQ** o sus propios controles. Para cambiar el predeterminado edita `CONTROL` en `pipeline.py`. Se aplica exactamente el mismo motor y configuración de envío a todos los pares.
 
-**No hay una proteína universalmente negativa.** Albúmina y ubiquitina pueden interactuar con algunas RBPs; su condición negativa debe justificarse para la hipótesis concreta. Compartir el protocolo no elimina diferencias por tamaño, dominios, calidad estructural o composición superficial. El score de HDOCK se usa para ordenar este cribado exploratorio; no es una energía libre experimental, una medida directa de afinidad ni una demostración de interacción. Un control positivo conocido y validación experimental mejoran la interpretación.
+**No hay una proteína universalmente negativa.** Albúmina y ubiquitina pueden interactuar con algunas proteínas utilizadas como ligandos; su condición negativa debe justificarse para la hipótesis concreta. Compartir el protocolo no elimina diferencias por tamaño, dominios, calidad estructural o composición superficial. El score de HDOCK se usa para ordenar este cribado exploratorio; no es una energía libre experimental, una medida directa de afinidad ni una demostración de interacción. Un control positivo conocido y validación experimental mejoran la interpretación.
 
 ## 6. Archivos y reanudación
 
@@ -95,7 +104,11 @@ Cada lote conserva:
 | `reports/` | HTML de las páginas consultadas como evidencia del score |
 | `resumen.csv` / `resumen.xlsx` | Tabla ordenada; controles resaltados y filtro en Excel |
 
-La tabla contiene `RBP, Receptor, Categoria_Receptor, Docking_Score, Job_Token, URL_Resultado`, más `Estado, Error, Jobname` para trazabilidad. Se usa el menor valor numérico **de la columna explícita Docking Score** entre los modelos presentes en la página. Si falta la tabla o el servidor cambió su HTML, el score queda vacío con estado `pendiente_o_formato_desconocido`; abre la URL para distinguir ambos casos. No se confunde RMSD/confianza con docking score. Errores de consulta quedan como `error_consulta` y se pueden volver a consultar.
+La tabla contiene `Ligando, Receptor, Categoria_Receptor, Docking_Score, Job_Token, URL_Resultado`, más `Estado, Error, Jobname` para trazabilidad. Se usa el menor valor numérico rotulado **Docking Score** entre los modelos presentes en la página. Si falta la tabla o el servidor cambió su HTML, el score queda vacío con estado `pendiente_o_formato_desconocido`; abre la URL para distinguir ambos casos. No se confunde RMSD/confianza con docking score. Errores de consulta quedan como `error_consulta` y se pueden volver a consultar.
+
+Los lotes anteriores que guardaban `RBP` se abren sin perder estructuras, tokens ni scores. Las nuevas vistas y exportaciones muestran `Ligando`; se conservan los prefijos internos históricos de las claves y los `jobname` para que el cambio de etiqueta no cause envíos duplicados. Los CSV/Excel exportados anteriormente no se modifican; para obtener la nueva cabecera, vuelve a exportar desde la aplicación.
+
+El lector admite también el formato real de HDOCK que presenta `Docking Score` como una fila y los modelos como columnas. Este formato se comprobó el 1 de noviembre de 2026 con un resultado real. Si tenías abierta una versión anterior, reinicia la aplicación, abre el lote existente y pulsa «Actualizar resultados»; no vuelvas a enviar los pares.
 
 Para reanudar, elige «Abrir lote / reanudar» y selecciona la carpeta con su configuración y `run-log.csv`. Se omiten los envíos aceptados, incluso si todavía no tienen score. La correspondencia usa `jobname` estable, no el número de fila que cambia al filtrar CSV. No se reintentan errores de envío automáticamente: revisa sus registros y marca «Reintentar envíos fallidos ya revisados». Un envío podría haber llegado al servidor aunque el script no capturase su token.
 

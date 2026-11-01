@@ -1,4 +1,5 @@
 .venv/
+.playwright-browsers/
 hdock_batch/
 __pycache__/
 *.py[cod]

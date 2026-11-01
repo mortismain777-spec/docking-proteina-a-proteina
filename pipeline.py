@@ -21,8 +21,20 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def normalize_type(value: str) -> str:
+    value = value.strip().lower()
+    return "ligando" if value == "rbp" else value
+
+
 def protein_key(item: dict) -> str:
-    return f"{item['tipo']}:{item['identificador'].upper()}"
+    # Preservar las claves y hashes históricos para no duplicar envíos existentes.
+    role = normalize_type(item["tipo"])
+    storage_role = "RBP" if role == "ligando" else role
+    return f"{storage_role}:{item['identificador'].upper()}"
+
+
+def protein_label(item: dict) -> str:
+    return f"{normalize_type(item['tipo'])}:{item['identificador'].upper()}"
 
 
 def read_inputs(text: str) -> list:
@@ -34,11 +46,11 @@ def read_inputs(text: str) -> list:
         item = {key: (raw.get(key) or "").strip() for key in SCHEMA}
         if not any(item.values()):
             continue
-        item["tipo"] = "RBP" if item["tipo"].upper() == "RBP" else item["tipo"].lower()
+        item["tipo"] = normalize_type(item["tipo"])
         item["categoria"] = item["categoria"].upper() if item["categoria"].lower() != "control" else "control"
         item["identificador"] = item["identificador"].upper()
-        if item["tipo"] not in ("RBP", "receptor") or not item["identificador"]:
-            raise ValueError(f"Fila {line}: tipo o identificador inválido.")
+        if item["tipo"] not in ("ligando", "receptor") or not item["identificador"]:
+            raise ValueError(f"Fila {line}: usa tipo ligando o receptor y un identificador.")
         if item["tipo"] == "receptor" and item["categoria"] not in ("A", "B", "C", "control"):
             raise ValueError(f"Fila {line}: categoría de receptor debe ser A, B, C o control.")
         item["nombre_comun"] = item["nombre_comun"] or item["identificador"]
@@ -49,8 +61,8 @@ def read_inputs(text: str) -> list:
             continue
         seen[key] = item
         items.append(item)
-    if not any(p["tipo"] == "RBP" for p in items) or not any(p["tipo"] == "receptor" and p["categoria"] != "control" for p in items):
-        raise ValueError("Incluye al menos una RBP y un receptor candidato.")
+    if not any(p["tipo"] == "ligando" for p in items) or not any(p["tipo"] == "receptor" and p["categoria"] != "control" for p in items):
+        raise ValueError("Incluye al menos un ligando y un receptor candidato.")
     return items
 
 
@@ -71,7 +83,7 @@ class Pipeline:
         directory.mkdir(parents=True, exist_ok=True)
         if (directory / "pipeline_config.json").exists():
             raise ValueError("Este lote ya existe. Usa Abrir lote para reanudarlo o elige otra carpeta.")
-        items = [dict(item) for item in items]
+        items = [{**item, "tipo": normalize_type(item["tipo"])} for item in items]
         # Mantener un control independiente por defecto, aunque existan controles personalizados.
         for control in [CONTROL] + ([DUMMY] if dummy else []):
             matches = [p for p in items if protein_key(p) == protein_key(control)]
@@ -81,7 +93,7 @@ class Pipeline:
                 items.append(dict(control))
         config = {"schema_version": 1, "created_at": now(), "taxon": int(taxon), "proteins": items,
                   "local_pdb": local, "email": email, "structures": {}, "errors": {}, "jobs": [], "results": {},
-                  "control_note": "Controles de referencia provisionales; validar ausencia de interacción para cada RBP."}
+                  "control_note": "Controles de referencia provisionales; validar ausencia de interacción para cada ligando."}
         instance = cls(directory, config)
         instance.save()
         return instance
@@ -92,6 +104,8 @@ class Pipeline:
         config = json.loads(path.read_text(encoding="utf-8"))
         if config.get("schema_version") != 1:
             raise ValueError("Versión de configuración no compatible.")
+        for item in config["proteins"]:
+            item["tipo"] = normalize_type(item["tipo"])
         return cls(path.parent.resolve(), config)
 
     def save(self):
@@ -112,7 +126,7 @@ class Pipeline:
                         raise ValueError("El PDB cambió; crea otro lote para preservar resultados anteriores.")
                     self.config["errors"].pop(key, None)
                     continue
-                callback({"kind": "message", "text": f"Estructura: {key}"})
+                callback({"kind": "message", "text": f"Estructura: {protein_label(item)}"})
                 local = self.config["local_pdb"].get(key)
                 if item["identificador"].startswith("PDB:") and not local:
                     result = fetcher.fetch_pdb(item["identificador"][4:])
@@ -122,13 +136,13 @@ class Pipeline:
                 self.config["errors"].pop(key, None)
             except Exception as exc:
                 self.config["errors"][key] = str(exc)
-                callback({"kind": "message", "text": f"ERROR {key}: {exc}"})
+                callback({"kind": "message", "text": f"ERROR {protein_label(item)}: {exc}"})
             self.save()
         self._build_jobs()
         self.save()
 
     def _build_jobs(self):
-        ligands = [p for p in self.config["proteins"] if p["tipo"] == "RBP"]
+        ligands = [p for p in self.config["proteins"] if normalize_type(p["tipo"]) == "ligando"]
         receptors = [p for p in self.config["proteins"] if p["tipo"] == "receptor"]
         jobs, skipped = [], []
         for ligand in ligands:
@@ -136,18 +150,18 @@ class Pipeline:
                 lk, rk = protein_key(ligand), protein_key(receptor)
                 structures = self.config["structures"]
                 if lk not in structures or rk not in structures or lk in self.config["errors"] or rk in self.config["errors"]:
-                    skipped.append({"RBP": ligand["identificador"], "Receptor": receptor["identificador"],
+                    skipped.append({"Ligando": ligand["identificador"], "Receptor": receptor["identificador"],
                                     "motivo": "; ".join(self.config["errors"].get(k, "") for k in (lk, rk)) or "Estructura pendiente"})
                     continue
                 identity = "|".join([lk, rk, structures[lk]["sha256"], structures[rk]["sha256"]])
                 name = "dock_" + hashlib.sha256(identity.encode()).hexdigest()[:20]
                 jobs.append({"receptor_pdb": structures[rk]["path"], "ligand_pdb": structures[lk]["path"],
-                             "jobname": name, "email": self.config["email"], "RBP": ligand["identificador"],
+                             "jobname": name, "email": self.config["email"], "Ligando": ligand["identificador"],
                              "Receptor": receptor["identificador"], "Categoria_Receptor": receptor["categoria"]})
         self.config["jobs"], self.config["skipped_pairs"] = jobs, skipped
         for filename, rows, fields in [
             ("jobs.csv", jobs, ["receptor_pdb", "ligand_pdb", "jobname", "email"]),
-            ("pares_omitidos.csv", skipped, ["RBP", "Receptor", "motivo"]),
+            ("pares_omitidos.csv", skipped, ["Ligando", "Receptor", "motivo"]),
         ]:
             with (self.directory / filename).open("w", newline="", encoding="utf-8-sig") as handle:
                 writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")

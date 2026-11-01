@@ -11,7 +11,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from job_runner import BatchRunner, accepted, latest_jobs
-from pipeline import Pipeline, protein_key, read_inputs
+from pipeline import Pipeline, protein_key, protein_label, read_inputs
 from results_parser import COLUMNS, export
 
 ROOT = Path(__file__).resolve().parent
@@ -167,16 +167,16 @@ class App(tk.Tk):
         window.title("Pegar listas · un identificador por línea")
         panels = ttk.Frame(window, padding=14)
         panels.pack()
-        ttk.Label(panels, text="RBPs").grid(row=0, column=0)
+        ttk.Label(panels, text="Ligandos (proteínas)").grid(row=0, column=0)
         ttk.Label(panels, text="Receptores (se añaden con categoría A)").grid(row=0, column=1)
-        rbps, recs = tk.Text(panels, width=35, height=14), tk.Text(panels, width=35, height=14)
-        rbps.grid(row=1, column=0, padx=5)
+        ligands, recs = tk.Text(panels, width=35, height=14), tk.Text(panels, width=35, height=14)
+        ligands.grid(row=1, column=0, padx=5)
         recs.grid(row=1, column=1, padx=5)
         def add():
             import csv, io
             output = io.StringIO()
             writer = csv.writer(output)
-            for kind, widget in [("RBP", rbps), ("receptor", recs)]:
+            for kind, widget in [("ligando", ligands), ("receptor", recs)]:
                 for identifier in widget.get("1.0", "end").splitlines():
                     if identifier.strip():
                         writer.writerow([kind, identifier.strip(), identifier.strip(), "A" if kind == "receptor" else ""])
@@ -189,13 +189,14 @@ class App(tk.Tk):
             items = self.pipeline.config["proteins"] if self.pipeline else read_inputs(self.editor.get("1.0", "end"))
             window = tk.Toplevel(self)
             window.title("Asignar estructura local")
-            variable = tk.StringVar(value=protein_key(items[0]))
+            keys_by_label = {protein_label(item): protein_key(item) for item in items}
+            variable = tk.StringVar(value=protein_label(items[0]))
             ttk.Label(window, text="Selecciona la proteína y luego un archivo PDB:", padding=10).pack()
-            ttk.Combobox(window, textvariable=variable, values=[protein_key(p) for p in items], state="readonly", width=50).pack(padx=12)
+            ttk.Combobox(window, textvariable=variable, values=list(keys_by_label), state="readonly", width=50).pack(padx=12)
             def assign():
                 path = filedialog.askopenfilename(filetypes=[("PDB", "*.pdb")], parent=window)
                 if path:
-                    key = variable.get()
+                    key = keys_by_label[variable.get()]
                     if self.pipeline and key in self.pipeline.config["structures"]:
                         messagebox.showinfo("Estructura fijada", "Esta estructura ya está preparada. Crea otro lote para cambiarla.")
                         return
