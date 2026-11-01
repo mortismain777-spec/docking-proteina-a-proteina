@@ -27,3 +27,23 @@ Antes de un lote grande, instalar el motor según el README y comprobar un únic
 - El navegador puede instalarse dentro del proyecto; el adaptador utiliza esa ruta cuando existe para evitar depender de la caché de otro contexto de ejecución.
 
 Esta actualización valida el funcionamiento del flujo, no la interpretación científica de los scores ni la idoneidad de los controles.
+
+## Panel experimental PD-1 / PD-L1 / CD80
+
+Se añadió selección opcional de albúmina y ubiquitina para los lotes nuevos, recorte mediante columnas opcionales `residuo_inicio,residuo_fin` y selección del modelo canónico exacto cuando AlphaFold devuelve isoformas adicionales.
+
+Se verificó con descargas reales el panel humano Q15116 (25–170), Q9NZQ7 (19–238) y P33681 (35–242): tres estructuras preparadas, dos pares, cero errores, sin PDB locales y sin enviar nuevos trabajos. El CSV y el protocolo de este panel documentan el negativo reportado por Freeman et al. (2000), los constructos y los límites de extrapolación a modelos sin glicanos ni fusiones Ig.
+
+Las nuevas pruebas cubren selección de isoforma, recorte, cobertura de residuos, validación de límites, exclusión de referencias y protección de un lote cuando cambia su rango. El panel está preparado para una prueba exploratoria; todavía no se ha ejecutado docking para él.
+
+## Modo local, descarga y notificaciones
+
+- 30 pruebas automatizadas correctas, incluidas preparación de átomos pesados y geometría, extracción de modelos, conservación de coordenadas, aislamiento de los motores, reanudación y avisos sin duplicados ni avisos durante la espera.
+- Descarga real de cinco modelos para cada uno de dos trabajos HDOCK terminados (10 originales y 10 copias para visor), sin reenviar trabajos ni modificar el lote original. Se verificó apertura estructural en ChimeraX 1.12 mediante su interfaz de línea de comandos.
+- El seguimiento se lanzó como proceso separado; leyó los trabajos, guardó resultados/tablas y finalizó al tener los modelos disponibles. Se probó la exclusión de monitores duplicados y persistencia de avisos por token.
+- Windows-Toasts instalado en el entorno virtual. La API de Windows aceptó un aviso de prueba; la visualización final depende de las preferencias de Windows y no se fuerza habilitando notificaciones del sistema.
+- Se revisó visualmente la pestaña de ejecución mediante captura nativa. La aplicación abre modos local/servidor, conserva los scores del lote histórico y muestra las nuevas etiquetas.
+- La preparación del panel PD-1/PD-L1/CD80 se verificó con estructuras reales: 146/220/208 residuos, tres copias de trabajo, dos pares y cero errores. Se registraron estadísticas pLDDT y dimensiones.
+- El adaptador local ejecutó subprocesos simulados de hdock/createpl, produjo PDB y reanudó sin mezclar tokens del servidor. Los ejecutables oficiales HDOCKlite se descargaron fuera del código distribuido. **No se ha verificado todavía un cálculo HDOCKlite real en este equipo**: requiere completar WSL/Ubuntu y su primer inicio, con elevación/reinicio si Windows lo solicita.
+
+La preparación automatiza limpieza, selección inequívoca y trazabilidad. No garantiza dominios biológicamente adecuados, reconstrucción de regiones ausentes, glicanos, protonación específica, minimización ni validación experimental. HDOCKlite usa búsqueda global; no se presenta una grid box ficticia ni se equipara su protocolo al híbrido del servidor.

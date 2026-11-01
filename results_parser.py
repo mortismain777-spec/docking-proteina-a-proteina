@@ -13,7 +13,7 @@ from openpyxl.styles import Font, PatternFill
 from data_fetcher import session
 from job_runner import accepted, latest_jobs
 
-COLUMNS = ["Ligando", "Receptor", "Categoria_Receptor", "Docking_Score", "Job_Token", "URL_Resultado", "Estado", "Error", "Jobname"]
+COLUMNS = ["Ligando", "Receptor", "Categoria_Receptor", "Docking_Score", "Job_Token", "URL_Resultado", "Estado", "Error", "Jobname", "Motor", "Modelos_Descargados", "Carpeta_Modelos", "Error_Descarga", "Ultima_Consulta"]
 
 
 class Tables(HTMLParser):
@@ -94,21 +94,25 @@ def fetch_score(url: str, client=None):
     return best_score(response.text), response.text
 
 
-def summary(jobs: list, log_path: Path, results: dict) -> pd.DataFrame:
+def summary(jobs: list, log_path: Path, results: dict, local=False) -> pd.DataFrame:
     logs = latest_jobs(log_path)
     rows = []
     for job in jobs:
         log = logs.get(job["jobname"], {})
         result = results.get(job["jobname"], {})
         # Nunca reutilizar el resultado de otro token.
-        if result.get("token") != log.get("token"):
+        if not local and result.get("token") != log.get("token"):
             result = {}
         state = "preparado" if not log else "error_envio"
         if accepted(log):
             state = result.get("state", "enviado")
+        if local:
+            log = {}
+            state = result.get('state', 'preparado')
         rows.append(dict(zip(COLUMNS, [job.get("Ligando", job.get("RBP", "")), job["Receptor"], job["Categoria_Receptor"],
             result.get("score"), log.get("token", ""), log.get("result_url", ""), state,
-            result.get("error", log.get("error", "")), job["jobname"]])))
+            result.get("error", log.get("error", "")), job["jobname"], 'HDOCKlite local' if local else 'HDOCK servidor',
+            len(result.get('models', [])), result.get('model_directory', ''), result.get('download_error', ''), result.get('checked_at', '')])))
     frame = pd.DataFrame(rows, columns=COLUMNS)
     frame["Docking_Score"] = pd.to_numeric(frame["Docking_Score"], errors="coerce")
     return frame.sort_values("Docking_Score", ascending=True, na_position="last", kind="stable")
@@ -136,7 +140,7 @@ def export(frame: pd.DataFrame, base: Path) -> tuple:
         for index, cell in enumerate(sheet[1]):
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = PatternFill("solid", fgColor="173B4F")
-            sheet.column_dimensions[cell.column_letter].width = widths[index]
+            sheet.column_dimensions[cell.column_letter].width = widths[index] if index < len(widths) else 28
         for row in sheet.iter_rows(min_row=2):
             row[3].number_format = "0.000"
             if row[2].value == "control":

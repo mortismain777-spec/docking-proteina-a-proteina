@@ -1,0 +1,4 @@
+tipo,identificador,nombre_comun,categoria,residuo_inicio,residuo_fin
+ligando,Q15116,PD-1_humano,,25,170
+receptor,Q9NZQ7,PD-L1_humano_positivo,A,19,238
+receptor,P33681,CD80_humano_negativo,control,35,242

@@ -53,11 +53,14 @@ class StructureFetcher:
         identifier = identifier.strip().upper()
         if ACCESSION.fullmatch(identifier):
             return identifier
-        if not re.fullmatch(r"[A-Z0-9_.-]+", identifier):
-            raise ValueError("Usa un accession UniProt o un símbolo de gen, sin espacios.")
-        query = f"gene_exact:{identifier} AND organism_id:{self.taxon}"
-        # Priorizar la entrada curada; usar no curadas sólo si no hay ninguna curada.
-        for expression in (query + " AND reviewed:true", query):
+        if len(identifier) > 150 or not re.fullmatch(r"[\w .()/-]+", identifier):
+            raise ValueError("Usa un accession, símbolo de gen o nombre de proteína, sin comillas ni operadores de búsqueda.")
+        queries = []
+        if re.fullmatch(r'[A-Z0-9_.-]+', identifier):
+            queries.append(f'gene_exact:{identifier} AND organism_id:{self.taxon}')
+        queries.append(f'protein_name:"{identifier}" AND organism_id:{self.taxon}')
+        expressions = [expr for query in queries for expr in (query + ' AND reviewed:true', query)]
+        for expression in expressions:
             response = self.client.get("https://rest.uniprot.org/uniprotkb/search", params={
                 "query": expression, "format": "json", "size": 2,
                 "fields": "accession,gene_names,organism_id",
@@ -70,8 +73,21 @@ class StructureFetcher:
             raise ValueError(f"{identifier}: {len(hits)} o más coincidencias; especifica UniProt ID y comprueba el organismo.")
         return hits[0]["primaryAccession"]
 
-    def fetch(self, identifier: str, local: Optional[str] = None) -> dict:
-        key = hashlib.sha256(identifier.upper().encode()).hexdigest()[:12]
+    def extracellular_range(self, accession: str) -> tuple:
+        response = self.client.get(f'https://rest.uniprot.org/uniprotkb/{accession}.json', timeout=(10,45))
+        response.raise_for_status()
+        domains = [f for f in response.json().get('features', [])
+                   if f.get('type') == 'Topological domain' and f.get('description', '').lower() == 'extracellular']
+        if len(domains) != 1:
+            raise ValueError('No hay una única región extracelular anotada. Usa estructura completa o un rango explícito.')
+        location = domains[0]['location']
+        if any(location[end].get('modifier', 'EXACT') != 'EXACT' for end in ('start','end')):
+            raise ValueError('Los límites extracelulares son inciertos; selecciona un rango explícito.')
+        return int(location['start']['value']), int(location['end']['value'])
+
+    def fetch(self, identifier: str, local: Optional[str] = None, residue_range=None) -> dict:
+        identity = identifier.upper() + (f":{residue_range[0]}-{residue_range[1]}" if residue_range else "")
+        key = hashlib.sha256(identity.encode()).hexdigest()[:12]
         target = self.directory / f"{key}.pdb"
         if local:
             source = Path(local).expanduser().resolve()
@@ -86,12 +102,35 @@ class StructureFetcher:
             predictions = response.json()
             # No elegir silenciosamente un fragmento entre varios modelos.
             models = [item for item in predictions if item.get("pdbUrl")]
+            # La API puede devolver además isoformas: escoger sólo el accession pedido.
+            exact = [item for item in models if item.get("uniprotAccession") == accession]
+            if any(item.get("uniprotAccession") for item in models):
+                models = exact
             if len(models) != 1:
                 raise ValueError(f"{identifier}: {len(models)} modelos; asigna un PDB local para seleccionar la estructura.")
+            if residue_range and models[0].get("uniprotStart", 1) != 1:
+                raise ValueError("El modelo es un fragmento: revisa su numeración antes de recortar residuos.")
             origin = models[0]["pdbUrl"]
             self._download(origin, target)
         validate_pdb(target)
-        return {"path": str(target.resolve()), "sha256": sha256(target), "source": origin, "uniprot": accession}
+        metadata = {"source": origin, "uniprot": accession}
+        if residue_range:
+            start, end = residue_range
+            if not (isinstance(start, int) and isinstance(end, int) and 1 <= start <= end):
+                raise ValueError("Rango de residuos inválido.")
+            metadata["full_structure_sha256"] = sha256(target)
+            lines = target.read_text(encoding="utf-8").splitlines()
+            atoms = [line for line in lines if line.startswith("ATOM  ") and start <= int(line[22:26]) <= end]
+            if len({line[21] for line in atoms}) != 1 or any(line[26:27].strip() for line in atoms):
+                raise ValueError("El recorte exige una sola cadena con numeración de residuos sin inserciones.")
+            positions = {int(line[22:26]) for line in atoms}
+            if positions != set(range(start, end + 1)):
+                raise ValueError("La estructura no cubre completamente el rango solicitado; revisa la numeración.")
+            target.write_text("\n".join(atoms + ["TER", "END"]) + "\n", encoding="utf-8")
+            validate_pdb(target)
+            metadata["residue_range"] = [start, end]
+            metadata["preparation"] = "Recorte por numeración PDB; sin alterar coordenadas ni añadir glicanos."
+        return {"path": str(target.resolve()), "sha256": sha256(target), **metadata}
 
     def fetch_pdb(self, code: str) -> dict:
         if not re.fullmatch(r"[0-9][A-Za-z0-9]{3}", code):

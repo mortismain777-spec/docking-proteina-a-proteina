@@ -1,5 +1,15 @@
 .venv/
 .playwright-browsers/
+tools/
+user_settings.json
+monitor_state.json
+monitor.log
+.monitor.lock
+monitor_*.request
+prepared/
+models/
+local/
+*.preparation.json
 hdock_batch/
 __pycache__/
 *.py[cod]

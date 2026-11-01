@@ -2,6 +2,8 @@
 
 Aplicación de escritorio en Python 3.9+ y Tkinter para preparar una matriz ligando × receptor, delegar envíos a HDOCK mediante `hdock_batch` y exportar resultados a CSV/Excel. Ambos participantes son proteínas. Interfaz y comentarios en español.
 
+La versión actual ofrece también **cálculo local con HDOCKlite (Linux/WSL)**, preparación estructural trazable, descarga de modelos, apertura en PyMOL/ChimeraX y seguimiento automático con avisos de escritorio. Para el modo local lee [INSTALACION_LOCAL.md](INSTALACION_LOCAL.md). Los resultados de los dos motores se mantienen separados.
+
 ## 1. Instalación
 
 Instala Python 3.9 o posterior desde https://www.python.org/downloads/ con Tkinter. En Windows comprueba `py -3 --version`; algunos equipos tienen un `python` antiguo de MGLTools. En Linux puede ser necesario instalar el paquete `python3-tk`.
@@ -56,13 +58,17 @@ receptor,P08581,MET,C
 ```
 
 - `tipo`: `ligando` o `receptor`. `categoria`: A/B/C para receptores candidatos, `control` para controles personalizados; dejar vacía para ligandos. Se preservan como filas independientes. Los CSV antiguos con `RBP` siguen aceptándose como equivalentes de `ligando`, sin distinguir mayúsculas y minúsculas.
-- `identificador`: accession UniProt o símbolo exacto del gen. Los nombres de genes se resuelven con UniProt REST y el TaxID visible en pantalla (9606 humano por defecto), priorizando entradas curadas (`reviewed:true`); si no hay ninguna, se buscan también las no curadas. Si hay varias coincidencias en la búsqueda utilizada se exige un accession; no se elige una proteína arbitrariamente.
+- `identificador`: accession UniProt, símbolo exacto del gen o nombre de proteína. Se resuelve con UniProt REST y el TaxID visible (9606 humano por defecto), priorizando entradas curadas. Un nombre con múltiples coincidencias exige un accession; no se elige una proteína arbitrariamente. «Pegar listas de proteínas» permite introducir un nombre/ID por línea y construir el CSV automáticamente.
 - Los duplicados exactos se eliminan por tipo/identificador; los metadatos contradictorios se rechazan. Dos alias que resuelvan al mismo accession se deben unificar en la entrada antes de preparar el lote.
-- Descarga: `https://alphafold.ebi.ac.uk/api/prediction/{accession}` → `pdbUrl`. Si hay varios modelos, se requiere elección mediante PDB local para no tomar un fragmento arbitrario.
+- Descarga: `https://alphafold.ebi.ac.uk/api/prediction/{accession}` → `pdbUrl`. Se selecciona el accession exacto solicitado, excluyendo otras isoformas. Si quedan varios modelos del mismo accession, se requiere elección mediante PDB local para no tomar un fragmento arbitrario.
 - «Asignar PDB local» permite reemplazar la descarga para una proteína. Ante un fallo abre esta opción después de preparar y pulsa «Revisar estructuras pendientes».
-- La comprobación PDB verifica registros ATOM y coordenadas finitas; no corrige cadenas, hidrógenos, protonación, dominios ni regiones desordenadas. Prepara las estructuras apropiadas antes del envío.
+- La preparación conserva el original en `structures/` y genera átomos pesados en `prepared/`: retira aguas/HETATM e hidrógenos, elige un conformero alternativo por ocupación y permite seleccionar cadenas. Registra geometría, SHA-256, advertencias de esqueleto incompleto y estadísticas de pLDDT cuando proceden de AlphaFold. No reconstruye residuos, añade glicanos ni realiza minimización o protonación específica.
 
 Los ejemplos sólo ilustran el formato; no constituyen una hipótesis de interacción validada.
+
+Opcionalmente el CSV puede incluir `residuo_inicio,residuo_fin`: enteros positivos, ambos presentes, para recortar una región tras descargar AlphaFold o copiar un PDB local. La estructura debe cubrir todos los residuos del intervalo en una sola cadena sin inserciones. Se conserva la numeración y las coordenadas; no se añaden glicanos ni se optimiza la estructura. El rango debe justificarse con anotaciones o el experimento de referencia. La configuración registra el rango y las huellas del archivo completo y el recortado. Cambiar el rango de un lote preparado exige crear un lote nuevo.
+
+También admite `cadenas` (por ejemplo `A` o `"A,B"`). En pantalla puedes elegir «Región extracelular anotada en UniProt»: sólo se selecciona automáticamente si hay una única región inequívoca y no proporcionaste ya un rango. El modo de búsqueda del motor local es global ab initio, sin grid box manual. La caja geométrica del informe sólo describe la estructura: no limita la búsqueda.
 
 ## 4. Ejecutar
 
@@ -75,17 +81,29 @@ También puedes abrir `ejecutar.bat` en Windows tras instalar dependencias.
 Si tu red usa una CA institucional y aparece `CERTIFICATE_VERIFY_FAILED`, configura `REQUESTS_CA_BUNDLE` con el archivo PEM de CA aprobado por tu institución. Conserva la verificación TLS; no uses `verify=False`.
 
 1. Carga las proteínas, elige organismo y asigna PDB locales si corresponde.
-2. Pulsa «Crear lote y preparar estructuras» y elige una carpeta. Se crea un subdirectorio fechado. Las descargas no envían nada a HDOCK.
+2. Pulsa «Preparar proteínas y crear pares» y elige una carpeta. Se crea un subdirectorio fechado. Este paso no calcula docking ni envía nada a HDOCK.
 3. Revisa el registro, la cantidad de pares y `pares_omitidos.csv`. Si una estructura falla, se conservan las otras y se omiten únicamente los pares afectados.
-4. En «Lote y seguimiento» selecciona `hdock_batch.py` y su Python.
-5. Pulsa «Enviar pendientes». La aplicación indica el destino y pide iniciar la transferencia de los PDB. Los datos se procesan en un servidor externo.
+4. En «Ejecución y seguimiento» elige «Servidor HDOCK» y comprueba `hdock_batch.py` y su Python; o «Este equipo · HDOCKlite» tras instalar el motor local.
+5. En modo servidor pulsa «Enviar pares a HDOCK». La confirmación indica cuántos pares se intentarán; no se repiten los aceptados. En modo local pulsa «Calcular pares en este equipo».
 6. El registro muestra mensajes, errores y tokens. **Enviado** significa que existe un token, no que el cálculo haya terminado. La barra cuenta pares con score disponible.
-7. Al acabar los envíos se consulta cada URL una vez. Si HDOCK sigue procesando, usa «Actualizar resultados» más tarde. No se consulta continuamente en segundo plano.
-8. En «Resultados» filtra A/B/C/control, abre un enlace y exporta la vista. Cada fase guarda además `resumen.csv` y `resumen.xlsx` con la tabla completa.
+7. El seguimiento automático está activado por defecto: consulta cada 5 minutos, descarga 5 modelos por par y solicita un aviso de Windows al aparecer un score. Puedes ajustar intervalo (1–60 min) y modelos (1–20). «Consultar HDOCK y descargar modelos» solicita una revisión inmediata, sin reenviar trabajos.
+8. En «Resultados y modelos» filtra A/B/C/control, abre la carpeta/modelo y exporta la vista. «Etapa del par» describe progreso; «Detalle de error» explica fallos; «Última consulta» es una fecha. Los contadores distinguen proteínas, pares preparados, pares enviados a HDOCK y resultados listos.
+
+## Seguimiento y modelos
+
+El monitor es un proceso local independiente. Se inicia después del envío si la opción automática está marcada; para lotes ya enviados utiliza «Activar seguimiento en segundo plano». Continúa si cierras la ventana, mientras Windows permanezca encendido, conectado y sin suspender. No puede notificar con el equipo apagado y no se instala como servicio ni tarea al inicio de Windows. Tras reiniciar, abre el lote y reactiva el seguimiento. Se detiene al completar los modelos de los pares aceptados, al pausarlo o tras 48 horas.
+
+Los avisos se solicitan una sola vez por resultado/token y no se envían durante la espera. La visualización depende de la configuración de notificaciones/No molestar de Windows. «Probar notificación» permite comprobarlo. Si falla la API, se registra el motivo; no se declara que el aviso se mostró.
+
+Se descargan los enlaces oficiales a `model_1.pdb` y siguientes que ofrece la página; se excluye el modelo 0 de homología de la selección de modelos de docking. Se conservan los PDB originales y copias `_visor.pdb` con identificadores de cadena diferenciados, sin mover coordenadas, además de SHA-256 y procedencia. Las carpetas incluyen sesiones `abrir_chimerax.cxc` y `abrir_pymol.pml`; ábrelas desde su carpeta de modelos. «Abrir mejor modelo en visor» abre el modelo 1 en ChimeraX o el visor seleccionado. Los errores al descargar no eliminan un score ya disponible.
+
+El monitor escribe `monitor_state.json`, `monitor.log` y `resumen_hdock_auto.*`; la GUI incorpora esos resultados sin que el monitor sobrescriba su configuración. Una exclusión por archivo impide duplicar monitores para el mismo lote. «Pausar seguimiento» deja de consultar, pero no cancela trabajos de HDOCK.
 
 ## 5. Controles e interpretación
 
-Se añade automáticamente albúmina bovina UniProt **P02769** como control de referencia provisional; el usuario puede añadir ubiquitina **PDB 1UBQ** o sus propios controles. Para cambiar el predeterminado edita `CONTROL` en `pipeline.py`. Se aplica exactamente el mismo motor y configuración de envío a todos los pares.
+En los lotes nuevos de la interfaz, albúmina bovina UniProt **P02769** y ubiquitina **PDB 1UBQ** son referencias opcionales, desmarcadas por defecto. Los controles experimentales se incluyen como receptores de categoría `control` en el CSV. Los lotes anteriores conservan los participantes que ya tenían. Se aplica el mismo motor y configuración de envío a todos los pares.
+
+La etiqueta `control` no certifica experimentalmente una proteína: guarda la publicación, especie, constructos y condiciones que respaldan esa elección. Para reproducir un ensayo deben considerarse también modificaciones, glicanos, fusión a etiquetas y presentación de las proteínas.
 
 **No hay una proteína universalmente negativa.** Albúmina y ubiquitina pueden interactuar con algunas proteínas utilizadas como ligandos; su condición negativa debe justificarse para la hipótesis concreta. Compartir el protocolo no elimina diferencias por tamaño, dominios, calidad estructural o composición superficial. El score de HDOCK se usa para ordenar este cribado exploratorio; no es una energía libre experimental, una medida directa de afinidad ni una demostración de interacción. Un control positivo conocido y validación experimental mejoran la interpretación.
 
@@ -97,24 +115,28 @@ Cada lote conserva:
 | --- | --- |
 | `pipeline_config.json` | Entrada, TaxID, controles, fecha UTC, rutas, fuentes, SHA-256 de PDB y motor, pares, errores y scores |
 | `structures/` | Copias de los PDB utilizados |
+| `prepared/` | Copias de trabajo e informes de preparación |
 | `jobs.csv` | `receptor_pdb,ligand_pdb,jobname,email` para el lote preparado |
 | `pares_omitidos.csv` | Pares que no pudieron prepararse y motivo |
 | `run-log.csv` | Bitácora acumulada compatible con el formato del motor |
 | `attempts/` | CSV, salida de consola y bitácora de cada intento individual |
 | `reports/` | HTML de las páginas consultadas como evidencia del score |
+| `models/` | Modelos HDOCK originales, copias para visor, sesiones y procedencia |
+| `local/` | Ejecuciones HDOCKlite, comandos, estructuras, consola y modelos |
+| `monitor_state.json` | Resultados y avisos del seguimiento independiente |
 | `resumen.csv` / `resumen.xlsx` | Tabla ordenada; controles resaltados y filtro en Excel |
 
-La tabla contiene `Ligando, Receptor, Categoria_Receptor, Docking_Score, Job_Token, URL_Resultado`, más `Estado, Error, Jobname` para trazabilidad. Se usa el menor valor numérico rotulado **Docking Score** entre los modelos presentes en la página. Si falta la tabla o el servidor cambió su HTML, el score queda vacío con estado `pendiente_o_formato_desconocido`; abre la URL para distinguir ambos casos. No se confunde RMSD/confianza con docking score. Errores de consulta quedan como `error_consulta` y se pueden volver a consultar.
+La tabla conserva las columnas originales y añade `Motor, Modelos_Descargados, Carpeta_Modelos, Error_Descarga, Ultima_Consulta`. Se usa el menor valor numérico rotulado **Docking Score** en la página. Si no hay tabla, queda vacío. No se confunde RMSD/confianza con docking score. El modo local no utiliza tokens/URLs del servidor y se exporta por separado en `resumen_local.*`.
 
 Los lotes anteriores que guardaban `RBP` se abren sin perder estructuras, tokens ni scores. Las nuevas vistas y exportaciones muestran `Ligando`; se conservan los prefijos internos históricos de las claves y los `jobname` para que el cambio de etiqueta no cause envíos duplicados. Los CSV/Excel exportados anteriormente no se modifican; para obtener la nueva cabecera, vuelve a exportar desde la aplicación.
 
-El lector admite también el formato real de HDOCK que presenta `Docking Score` como una fila y los modelos como columnas. Este formato se comprobó el 1 de noviembre de 2026 con un resultado real. Si tenías abierta una versión anterior, reinicia la aplicación, abre el lote existente y pulsa «Actualizar resultados»; no vuelvas a enviar los pares.
+El lector admite el formato real de HDOCK con `Docking Score` como fila. Si actualizaste el programa, reinicia la ventana, abre el lote y pulsa «Consultar HDOCK y descargar modelos»; no vuelvas a enviar los pares.
 
-Para reanudar, elige «Abrir lote / reanudar» y selecciona la carpeta con su configuración y `run-log.csv`. Se omiten los envíos aceptados, incluso si todavía no tienen score. La correspondencia usa `jobname` estable, no el número de fila que cambia al filtrar CSV. No se reintentan errores de envío automáticamente: revisa sus registros y marca «Reintentar envíos fallidos ya revisados». Un envío podría haber llegado al servidor aunque el script no capturase su token.
+Para reanudar, elige «Abrir lote guardado» y selecciona la carpeta con su configuración y `run-log.csv`. Se omiten los envíos aceptados aunque no tengan score. No se reintentan errores automáticamente: revisa sus registros y marca la casilla de reintento. Los lotes históricos no se preparan de nuevo ni cambian sus `jobname`; para aplicar la preparación nueva crea otro lote. No se asume que un envío sin token nunca llegó al servidor.
 
 Si se interrumpe el proceso en medio de un envío, `submission-in-flight.json` conserva el intento. Al abrir de nuevo se recupera su token si aparece en la bitácora de ese intento; de lo contrario se bloquean nuevos envíos hasta conciliar. Revisa `attempts/.../console.log` y HDOCK; añade el registro recuperado a `run-log.csv` o archiva el marcador si verificaste que no se envió. No se promete exactamente una entrega frente a cortes de red: el servidor externo no ofrece aquí una clave de idempotencia.
 
-«Detener al acabar el par» espera el proceso activo para conservar el token. No cancela cálculos que ya estén ejecutándose en HDOCK. No cambies estructuras o borres bitácoras del lote; una huella diferente exige un lote nuevo. Las rutas son absolutas: mantén la carpeta en su ubicación original.
+«Pausar tras el par activo» espera el proceso activo para conservar token o resultado local. No cancela cálculos de HDOCK. No cambies estructuras o borres bitácoras del lote; una huella diferente exige un lote nuevo. Las rutas son absolutas: mantén la carpeta en su ubicación original.
 
 No se suben al repositorio los lotes, correos, estructuras ni resultados: están excluidos de Git por defecto. La visibilidad del repositorio se mantiene privada hasta que su propietario decida cambiarla.
 
@@ -126,7 +148,7 @@ No se suben al repositorio los lotes, correos, estructuras ni resultados: están
 
 Las pruebas cubren matriz/controles, errores parciales, resolución ambigua, estructuras, columnas de score, exportación y ejecución real de un subproceso simulado con reanudación. No envían trabajos reales ni constituyen validación científica. La GUI utiliza un hilo de trabajo y una cola; sólo el hilo principal modifica Tkinter.
 
-Módulos editables: `data_fetcher.py` (UniProt/AlphaFold/PDB), `pipeline.py` (matriz y persistencia), `job_runner.py` (motor externo), `results_parser.py` (scores y exportación), `app.py` (interfaz).
+Módulos: `data_fetcher.py` (búsqueda/descarga), `preparation.py` (preparación), `pipeline.py` (matriz/persistencia), `job_runner.py` (envíos), `local_engine.py` (HDOCKlite/WSL), `results_parser.py` (scores/exportación), `model_files.py` (PDB/visores), `result_monitor.py` (seguimiento), `desktop_notify.py` (avisos), `app.py` (interfaz).
 
 ## Fuentes y límites de integración
 

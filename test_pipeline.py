@@ -104,6 +104,57 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             StructureFetcher(self.root / "other", client=client).fetch("P00533")
 
+    def test_canonical_model_is_selected_and_requested_domain_cropped(self):
+        client = Mock()
+        response = Mock()
+        response.json.return_value = [
+            {"uniprotAccession": "P00533-2", "pdbUrl": "https://example.invalid/isoform"},
+            {"uniprotAccession": "P00533", "pdbUrl": "https://example.invalid/canonical"},
+        ]
+        atoms = PDB.splitlines()[0]
+        pdb = "\n".join(atoms[:22] + f"{n:4d}" + atoms[26:] for n in range(1, 5)) + "\nEND\n"
+        client.get.side_effect = [response, Mock(content=pdb.encode())]
+        result = StructureFetcher(self.root / "domain", client=client).fetch("P00533", residue_range=(2, 3))
+        self.assertEqual(client.get.call_args.args[0], 'https://example.invalid/canonical')
+        positions = {int(line[22:26]) for line in Path(result['path']).read_text().splitlines() if line.startswith('ATOM  ')}
+        self.assertEqual(positions, {2, 3})
+        self.assertEqual(result['residue_range'], [2, 3])
+        self.assertNotEqual(result['full_structure_sha256'], result['sha256'])
+
+    def test_domain_requires_complete_range_and_input_validates_bounds(self):
+        fetcher = StructureFetcher(self.root / 'domain')
+        with self.assertRaisesRegex(ValueError, 'no cubre'):
+            fetcher.fetch('LOCAL', str(self.pdb()), residue_range=(1, 2))
+        with self.assertRaisesRegex(ValueError, 'residuo_inicio'):
+            read_inputs('tipo,identificador,nombre_comun,categoria,residuo_inicio,residuo_fin\nligando,P00648,x,,20,10\nreceptor,P11540,y,A,,\n')
+
+    def test_changed_domain_cannot_reuse_prepared_structure(self):
+        pipeline = self.pipeline()
+        path = self.pdb()
+        with patch('pipeline.StructureFetcher.fetch', return_value={
+            'path': str(path), 'sha256': sha256(path), 'source': 'fixture'
+        }):
+            pipeline.prepare()
+        pipeline.config['proteins'][0].update(residuo_inicio=1, residuo_fin=1)
+        pipeline.prepare()
+        self.assertIn('rango de residuos cambió', pipeline.config['errors']['RBP:P09651'])
+        self.assertEqual(pipeline.config['jobs'], [])
+
+    def test_experimental_controls_can_exclude_optional_references(self):
+        text = ('tipo,identificador,nombre_comun,categoria,residuo_inicio,residuo_fin\n'
+                'ligando,Q15116,PD-1,,25,170\n'
+                'receptor,Q9NZQ7,PD-L1,A,19,238\n'
+                'receptor,P33681,CD80,control,35,242\n')
+        items = read_inputs(text)
+        pipeline = Pipeline.create(self.root / 'benchmark', items, 9606, {}, False, '', albumin=False)
+        path = self.pdb()
+        with patch('pipeline.StructureFetcher.fetch', return_value={'path': str(path), 'sha256': sha256(path), 'source': 'fixture'}) as fetch:
+            pipeline.prepare()
+        self.assertEqual(len(pipeline.config['proteins']), 3)
+        self.assertEqual(len(pipeline.config['jobs']), 2)
+        self.assertEqual([call.kwargs['residue_range'] for call in fetch.call_args_list], [(25,170), (19,238), (35,242)])
+        self.assertEqual(sum(j['Categoria_Receptor'] == 'control' for j in pipeline.config['jobs']), 1)
+
     def test_full_matrix_controls_and_resume_identity(self):
         pipeline = self.pipeline(dummy=True)
         path = self.pdb()
