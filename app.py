@@ -21,6 +21,7 @@ from local_engine import LocalEngine
 from pipeline import Pipeline, protein_key, protein_label, read_inputs, write_json
 from result_monitor import running, start_monitor
 from results_parser import COLUMNS, export
+from provider_settings import PROVIDERS, DEFAULT_ORDER, validate_order, policy_from_config
 
 ROOT = Path(__file__).resolve().parent
 STATE_LABELS = {'preparado':'Listo para ejecutar', 'enviado':'Aceptado por HDOCK', 'completado':'Score disponible',
@@ -43,6 +44,13 @@ class App(tk.Tk):
             self.preferences = json.loads((ROOT/'user_settings.json').read_text(encoding='utf-8'))
         except (OSError,ValueError):
             pass
+        try:
+            self.provider_defaults={
+                'provider_order':validate_order(self.preferences.get('provider_order',DEFAULT_ORDER)),
+                'use_structure_cache':bool(self.preferences.get('use_structure_cache',True)),
+                'continue_provider_errors':bool(self.preferences.get('continue_provider_errors',True))}
+        except ValueError:
+            self.provider_defaults={'provider_order':list(DEFAULT_ORDER),'use_structure_cache':True,'continue_provider_errors':True}
         self.protocol('WM_DELETE_WINDOW',self.close_app)
         self._build()
         self.after(200,self.poll)
@@ -62,6 +70,8 @@ class App(tk.Tk):
         style.configure('TButton',padding=(9,6)); style.configure('TNotebook.Tab',padding=(16,8)); style.configure('Treeview',rowheight=28)
         self.configure(background='#edf3f7')
         header=ttk.Frame(self,padding=(20,12)); header.pack(fill='x')
+        self.gear=ttk.Button(header,text='⚙ Configuración',command=self.open_provider_settings)
+        self.gear.pack(side='right',anchor='n'); self.actions.append(self.gear)
         ttk.Label(header,text='Docking Matrix',font=('Segoe UI',23,'bold')).pack(anchor='w')
         ttk.Label(header,text='Preparar proteínas → Calcular en el equipo o enviar a HDOCK → Ver modelos y exportar').pack(anchor='w')
         self.notebook=ttk.Notebook(self); self.notebook.pack(fill='both',expand=True,padx=18)
@@ -87,7 +97,7 @@ class App(tk.Tk):
         ttk.Label(selection,text='Región a preparar:').pack(side='left')
         ttk.Combobox(selection,textvariable=self.region,values=['Estructura completa','Región extracelular anotada en UniProt'],state='readonly',width=44).pack(side='left',padx=6)
         self.allow_fallback=tk.BooleanVar(value=self.initial_fallback)
-        ttk.Checkbutton(inputs,text='Permitir predicción alternativa con ESMFold (envía la secuencia a un servidor remoto)',variable=self.allow_fallback).pack(anchor='w')
+        ttk.Checkbutton(inputs,text='Permitir fuentes alternativas según Configuración (ESMFold envía la secuencia a un servidor remoto)',variable=self.allow_fallback).pack(anchor='w')
         ttk.Label(inputs,text='Columnas opcionales: residuo_inicio,residuo_fin,cadenas,pdb_local. ESMFold: límite conservador de 400 residuos por solicitud.\nUn nombre ambiguo requiere accession. La confianza del modelo debe revisarse antes del docking.',wraplength=1120).pack(anchor='w',pady=5)
         self.local_label=ttk.Label(inputs,text='PDB propios asignados: 0'); self.local_label.pack(anchor='w')
         prepbar=ttk.Frame(inputs); prepbar.pack(fill='x',pady=6)
@@ -161,6 +171,7 @@ class App(tk.Tk):
         self.button(filters,'Exportar tabla CSV + Excel',self.export_view); self.button(filters,'Ver página en HDOCK',self.open_result)
         tools=ttk.Frame(results); tools.pack(fill='x',pady=(0,8))
         self.button(tools,'Abrir carpeta de modelos',self.open_models); self.button(tools,'Abrir mejor modelo en visor',self.open_viewer)
+        self.button(tools,'Ver procedencia del par',self.show_provenance)
         ttk.Label(results,text='Las filas aparecen al preparar pares. «Score disponible» indica un cálculo con resultado.\n«Detalle de error» explica un fallo; «Última consulta» es una fecha. El score no es afinidad experimental.',wraplength=1120).pack(anchor='w',pady=(0,8))
         area=ttk.Frame(results); area.pack(fill='both',expand=True); area.rowconfigure(0,weight=1); area.columnconfigure(0,weight=1)
         self.tree=ttk.Treeview(area,columns=COLUMNS,show='headings')
@@ -176,6 +187,74 @@ class App(tk.Tk):
 
     def current_mode(self):
         return 'local' if self.mode.get().startswith('Este equipo') else 'server'
+
+    def open_provider_settings(self):
+        if self.busy: return
+        window=tk.Toplevel(self); window.title('Configuración · proveedores de estructuras')
+        width,height=min(850,self.winfo_screenwidth()-80),min(660,self.winfo_screenheight()-100)
+        window.geometry(f'{width}x{height}+{max(20,(self.winfo_screenwidth()-width)//2)}+{max(20,(self.winfo_screenheight()-height)//2)}')
+        window.transient(self); window.grab_set()
+        panel=ttk.Frame(window,padding=18); panel.pack(fill='both',expand=True)
+        ttk.Label(panel,text='Fuentes gratuitas para nuevos lotes',font=('Segoe UI',15,'bold')).pack(anchor='w')
+        ttk.Label(panel,text='La app prueba las fuentes activas en este orden. Selecciona una y usa Subir/Bajar.\nUn PDB elegido explícitamente siempre tiene prioridad. Los modelos ya preparados se conservan.',wraplength=790).pack(anchor='w',pady=8)
+        enabled=self.provider_defaults['provider_order']
+        entries=[{'id':p,'enabled':p in enabled} for p in enabled+[p for p in PROVIDERS if p not in enabled]]
+        listing=tk.Listbox(panel,height=5,font=('Segoe UI',11),exportselection=False); listing.pack(fill='x')
+        def render(index=0):
+            listing.delete(0,'end')
+            for item in entries: listing.insert('end',('[Activo] ' if item['enabled'] else '[Desactivado] ')+PROVIDERS[item['id']])
+            listing.selection_set(index); listing.activate(index)
+        def move(delta):
+            selection=listing.curselection()
+            if not selection: return
+            index=selection[0]; target=index+delta
+            if 0<=target<len(entries): entries[index],entries[target]=entries[target],entries[index]; render(target)
+        def toggle():
+            selection=listing.curselection()
+            if selection:
+                index=selection[0]; entries[index]['enabled']=not entries[index]['enabled']; render(index)
+        buttons=ttk.Frame(panel); buttons.pack(fill='x',pady=7)
+        for label,command in [('↑ Subir',lambda:move(-1)),('↓ Bajar',lambda:move(1)),('Activar / desactivar',toggle)]:
+            ttk.Button(buttons,text=label,command=command).pack(side='left',padx=3)
+        cache=tk.BooleanVar(value=self.provider_defaults['use_structure_cache'])
+        errors=tk.BooleanVar(value=self.provider_defaults['continue_provider_errors'])
+        ttk.Checkbutton(panel,text='Usar caché validada antes de consultar las fuentes',variable=cache).pack(anchor='w',pady=4)
+        ttk.Label(panel,text='Dentro de la caché también se respeta el orden de fuentes. Desmárcalo para consultar de nuevo\nen un lote nuevo; no borra la caché ni reemplaza modelos de un lote existente.',wraplength=790).pack(anchor='w')
+        ttk.Checkbutton(panel,text='Probar la siguiente fuente tras agotar reintentos de errores temporales (504, timeout…)',variable=errors).pack(anchor='w',pady=8)
+        ttk.Label(panel,text='PDB: estructura experimental existente, cadena y secuencia verificadas.\nSWISS-MODEL Repository: descarga modelos existentes; no crea modelos nuevos ni requiere token.\nESMFold: genera un modelo nuevo en un servidor remoto, hasta el límite configurado.\nNo se han incorporado servicios de pago. GMQE/QMEAN no se interpretan como pLDDT.',wraplength=790).pack(anchor='w',pady=6)
+        if self.pipeline:
+            current=policy_from_config(self.pipeline.config)
+            ttk.Label(panel,text='Lote abierto: '+' → '.join(PROVIDERS[p].split(' · ')[0] for p in current['provider_order']),wraplength=790).pack(anchor='w',pady=6)
+        apply_pending=tk.BooleanVar(value=False)
+        if self.pipeline:
+            ttk.Checkbutton(panel,text='Aplicar también a estructuras pendientes del lote abierto (conservar las ya preparadas)',variable=apply_pending).pack(anchor='w',pady=5)
+        def save():
+            try:
+                policy={'provider_order':validate_order([item['id'] for item in entries if item['enabled']]),
+                        'use_structure_cache':cache.get(),'continue_provider_errors':errors.get()}
+                updated={**self.preferences,**policy}
+                write_json(ROOT/'user_settings.json',updated)
+                self.preferences=updated; self.provider_defaults=policy
+                if apply_pending.get() and self.pipeline:
+                    self.pipeline.config.update(policy); self.pipeline.save()
+                self.status.set('Configuración guardada. Orden: '+' → '.join(policy['provider_order'])+'. Se conserva la prioridad de los PDB propios.')
+                window.destroy()
+            except (ValueError,OSError) as exc: messagebox.showerror('Configuración no guardada',str(exc),parent=window)
+        footer=ttk.Frame(panel); footer.pack(side='bottom',fill='x',pady=8)
+        ttk.Button(footer,text='Guardar configuración',command=save).pack(side='right',padx=3)
+        ttk.Button(footer,text='Cancelar',command=window.destroy).pack(side='right',padx=3)
+        render()
+
+    def show_provenance(self):
+        if not self.require_batch(): return
+        row=self.selected_row()
+        if row is None: return
+        sections=[]
+        import pandas as pd
+        def display(value): return 'No disponible' if value is None or pd.isna(value) or value=='' else str(value)
+        for role in ('Ligando','Receptor'):
+            sections.append(f"{role}: {row[role]}\nFuente: {display(row['Fuente_'+role])}\nMétodo: {display(row['Metodo_'+role])}\nOrigen: {display(row['Origen_'+role])}\npLDDT: {display(row['pLDDT_'+role])}\nOtras métricas: {display(row['Calidad_'+role])}")
+        messagebox.showinfo('Procedencia de las estructuras','\n\n'.join(sections)+'\n\nLa fuente de la estructura es independiente del motor de docking elegido.')
 
     def mode_changed(self):
         local=self.current_mode()=='local'
@@ -284,7 +363,7 @@ class App(tk.Tk):
             if not parent: return
             folder=Path(parent)/datetime.now().strftime('lote_%Y%m%d_%H%M%S')
             region='extracellular' if self.region.get().startswith('Región') else 'full'
-            self.pipeline=Pipeline.create(folder,items,taxon,dict(self.local),self.dummy.get(),self.email.get().strip(),albumin=self.albumin.get(),region_mode=region,allow_fallback=self.allow_fallback.get())
+            self.pipeline=Pipeline.create(folder,items,taxon,dict(self.local),self.dummy.get(),self.email.get().strip(),albumin=self.albumin.get(),region_mode=region,allow_fallback=self.allow_fallback.get(),**self.provider_defaults)
             self.run_task(lambda:self.pipeline.prepare(self.events.put,self.stop_event),'Descargando y preparando proteínas; todavía no se ejecuta docking…')
         self.guarded(operation)
 

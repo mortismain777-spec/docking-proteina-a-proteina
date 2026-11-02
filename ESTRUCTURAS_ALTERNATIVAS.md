@@ -1,10 +1,12 @@
-# Obtención alternativa de estructuras — versión 0.3.0
+# Obtención alternativa de estructuras — versión 0.4.0
+
+La prioridad es configurable desde **⚙ Configuración**, incluyendo PDB y SWISS-MODEL Repository. Consulta [CONFIGURACION_PROVEEDORES.md](CONFIGURACION_PROVEEDORES.md) para la política completa; los lotes anteriores conservan sus opciones hasta que se cambien explícitamente.
 
 ## Uso desde la aplicación
 
 1. Cierra y abre Docking Matrix mediante el acceso directo del escritorio. Los trabajos aceptados por HDOCK continúan en el servidor.
 2. Introduce nombres/genes con organismo o accesiones UniProt/RefSeq. Los nombres ambiguos requieren una accession; no se elige una proteína al azar. Las versiones RefSeq se conservan. La selección automática de región extracelular requiere una entrada UniProt con anotación inequívoca; para RefSeq utiliza un rango explícito.
-3. Mantén marcada **Permitir predicción alternativa con ESMFold** si autorizas transmitir las secuencias necesarias a ese servidor. Esta opción está activada por defecto para lotes nuevos.
+3. Mantén marcada **Permitir fuentes alternativas según Configuración** para habilitar respaldos. Desactiva ESMFold en Configuración si no autorizas transmitir secuencias a ese servidor. La casilla general está activada por defecto para lotes nuevos.
 4. Pulsa **Preparar proteínas y crear pares**. La consola muestra la fuente por proteína y la barra cuenta el avance durante la preparación. Un fallo sólo omite los pares afectados.
 5. Abre **Ver informe de preparación**: la carpeta del lote contiene `structure_report.csv`, `needs_manual_modeling.txt` e informes individuales bajo `prepared/`.
 6. Los resultados añaden `Fuente_Ligando`, `Fuente_Receptor`, `pLDDT_Ligando` y `pLDDT_Receptor`; se conservan las columnas anteriores y los controles.
@@ -15,8 +17,8 @@ Para reanudar abre el lote guardado y pulsa **Reintentar preparación que falló
 
 1. PDB seleccionado mediante la interfaz o columna `pdb_local`. La selección de la interfaz tiene prioridad si también se indicó un archivo en CSV.
 2. Caché válida de AlphaFold; si está permitido, caché de ESMFold.
-3. AlphaFold DB, conservando selección canónica, comprobación de fragmentos y recorte existentes.
-4. Sólo tras un **404 en la consulta de predicción de AlphaFold**, obtener FASTA de UniProt y predecir con ESMFold. Un 404 al descargar un PDB enlazado no se interpreta como ausencia en la base de datos. Las respuestas 200 con varios modelos siguen requiriendo selección explícita.
+3. Consultar fuentes activas según el orden del lote: por defecto AlphaFold DB, PDB/PDBe, SWISS-MODEL Repository y ESMFold. AlphaFold conserva selección canónica, comprobación de fragmentos y recorte existentes.
+4. Si una fuente no ofrece un modelo utilizable, pasar a la siguiente. Los errores temporales permiten continuar sólo si la opción correspondiente está activada. Un 404 en un enlace PDB no se interpreta como ausencia en AlphaFold. Las respuestas ambiguas no se resuelven eligiendo un fragmento arbitrario.
 5. Las accesiones RefSeq/GenBank de proteína reconocidas no son claves de AlphaFold: si el fallback está permitido se obtiene FASTA de NCBI y se utiliza ESMFold. No es necesario que tengan equivalencia UniProt. Se rechazan entradas sin una secuencia única de aminoácidos estándar.
 6. Si no es posible obtener un modelo, registrar el motivo y continuar. `RETRY_PENDING` distingue una consulta temporalmente fallida de la necesidad de modelado manual; `INPUT_ERROR` identifica respuestas HTTP 400.
 
@@ -62,7 +64,7 @@ Preparar estructuras desde consola, sin ejecutar ni enviar docking:
 .venv\Scripts\python app.py --prepare-csv entrada.csv --output lote_nuevo --taxon 9606 --allow-fallback
 ```
 
-`--allow-fallback` es el valor por defecto. `--no-fallback` impide nuevas predicciones y reutilización automática de caché ESMFold, pero mantiene PDB propios, resolución de nombres, caché AlphaFold y reportes de errores. En CLI puede configurarse `--esm-max-length 400`; ampliarlo no garantiza que el servicio acepte el modelo. Para reanudar un lote CLI utiliza **Abrir lote guardado** en la GUI.
+`--allow-fallback` es el valor por defecto. `--no-fallback` restringe obtención automática y caché a AlphaFold, conservando PDB propios, resolución de nombres y reportes. La CLI usa el orden predeterminado para lotes nuevos; después puede cambiarse desde la configuración de la GUI. Puede configurarse `--esm-max-length 400`; ampliarlo no garantiza aceptación del servicio. Para reanudar un lote CLI utiliza **Abrir lote guardado** en la GUI.
 
 ## Privacidad y límites
 

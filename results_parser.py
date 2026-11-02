@@ -15,6 +15,7 @@ from job_runner import accepted, latest_jobs
 
 COLUMNS = ["Ligando", "Receptor", "Categoria_Receptor", "Docking_Score", "Job_Token", "URL_Resultado", "Estado", "Error", "Jobname", "Motor", "Modelos_Descargados", "Carpeta_Modelos", "Error_Descarga", "Ultima_Consulta"]
 COLUMNS += ['Fuente_Ligando','Fuente_Receptor','pLDDT_Ligando','pLDDT_Receptor']
+COLUMNS += ['Metodo_Ligando','Metodo_Receptor','Origen_Ligando','Origen_Receptor','Calidad_Ligando','Calidad_Receptor']
 
 
 class Tables(HTMLParser):
@@ -114,7 +115,9 @@ def summary(jobs: list, log_path: Path, results: dict, local=False) -> pd.DataFr
             result.get("score"), log.get("token", ""), log.get("result_url", ""), state,
             result.get("error", log.get("error", "")), job["jobname"], 'HDOCKlite local' if local else 'HDOCK servidor',
             len(result.get('models', [])), result.get('model_directory', ''), result.get('download_error', ''), result.get('checked_at', ''),
-            job.get('Fuente_Ligando','Desconocida'),job.get('Fuente_Receptor','Desconocida'),job.get('pLDDT_Ligando'),job.get('pLDDT_Receptor')])))
+            job.get('Fuente_Ligando','Desconocida'),job.get('Fuente_Receptor','Desconocida'),job.get('pLDDT_Ligando'),job.get('pLDDT_Receptor'),
+            job.get('Metodo_Ligando',''),job.get('Metodo_Receptor',''),job.get('Origen_Ligando',''),job.get('Origen_Receptor',''),
+            job.get('Calidad_Ligando',''),job.get('Calidad_Receptor','')])))
     frame = pd.DataFrame(rows, columns=COLUMNS)
     frame["Docking_Score"] = pd.to_numeric(frame["Docking_Score"], errors="coerce")
     return frame.sort_values("Docking_Score", ascending=True, na_position="last", kind="stable")

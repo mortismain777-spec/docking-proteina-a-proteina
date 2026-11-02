@@ -13,6 +13,7 @@ from job_runner import accepted, latest_jobs
 from results_parser import fetch_score, summary
 from preparation import prepare_protein
 from structure_cache import APP_VERSION, pdb_info, write_structure_reports
+from provider_settings import DEFAULT_ORDER, validate_order
 
 SCHEMA = ["tipo", "identificador", "nombre_comun", "categoria"]
 CONTROL = {"tipo": "receptor", "identificador": "P02769", "nombre_comun": "Albumina_bovina_referencia", "categoria": "control"}
@@ -90,7 +91,8 @@ class Pipeline:
         self.directory, self.config = Path(directory), config
 
     @classmethod
-    def create(cls, directory: Path, items: list, taxon: int, local: dict, dummy: bool, email: str, albumin: bool = True, region_mode='full', allow_fallback=True, cache_directory=None, esm_max_length=400):
+    def create(cls, directory: Path, items: list, taxon: int, local: dict, dummy: bool, email: str, albumin: bool = True, region_mode='full', allow_fallback=True, cache_directory=None, esm_max_length=400,
+               provider_order=None, use_structure_cache=True, continue_provider_errors=True):
         directory = Path(directory).resolve()
         directory.mkdir(parents=True, exist_ok=True)
         if (directory / "pipeline_config.json").exists():
@@ -110,6 +112,8 @@ class Pipeline:
                   'app_version': APP_VERSION, 'allow_fallback': bool(allow_fallback),
                   'cache_directory': str(Path(cache_directory or Path(__file__).parent/'pdb_cache').resolve()),
                   'esm_max_length': int(esm_max_length),
+                  'provider_order':validate_order(DEFAULT_ORDER if provider_order is None else provider_order),
+                  'use_structure_cache':bool(use_structure_cache),'continue_provider_errors':bool(continue_provider_errors),
                   "control_note": "La categoría control es una etiqueta; documentar su evidencia experimental para cada ligando."}
         instance = cls(directory, config)
         instance.save()
@@ -132,7 +136,9 @@ class Pipeline:
     def prepare(self, callback=lambda event: None, stop=None):
         fetcher = StructureFetcher(self.directory / "structures", self.config["taxon"],
             cache_directory=self.config.get('cache_directory'), allow_fallback=self.config.get('allow_fallback',False),
-            stop=stop, callback=callback, esm_max_length=self.config.get('esm_max_length',400))
+            stop=stop, callback=callback, esm_max_length=self.config.get('esm_max_length',400),
+            provider_order=self.config.get('provider_order'),use_structure_cache=self.config.get('use_structure_cache',True),
+            continue_provider_errors=self.config.get('continue_provider_errors',False))
         for index,item in enumerate(self.config["proteins"],1):
             if stop and stop.is_set():
                 break
@@ -167,20 +173,22 @@ class Pipeline:
                     else:
                         result = fetcher.fetch(item["identificador"], local)
                 self.config["structures"][key] = result
+                self.config.setdefault('structure_attempts',{})[key]=result.get('provider_attempts',[])
                 self.config["errors"].pop(key, None)
             except InterruptedError:
                 callback({'kind':'message','text':'Preparación detenida; puedes reanudar este lote.'})
                 break
             except Exception as exc:
                 self.config["errors"][key] = str(exc)
+                self.config.setdefault('structure_attempts',{})[key]=getattr(exc,'provider_attempts',[])
                 callback({"kind": "message", "text": f"ERROR {protein_label(item)}: {exc}"})
             self.save()
             callback({'kind':'structure_progress','completed':index,'total':len(self.config['proteins'])})
-            write_structure_reports(self.directory,self.config['proteins'],self.config['structures'],self.config['errors'],protein_key)
+            write_structure_reports(self.directory,self.config['proteins'],self.config['structures'],self.config['errors'],protein_key,self.config.get('structure_attempts'))
         self._prepare_docking_files(callback)
         self._build_jobs()
         self.save()
-        rows=write_structure_reports(self.directory,self.config['proteins'],self.config['structures'],self.config['errors'],protein_key)
+        rows=write_structure_reports(self.directory,self.config['proteins'],self.config['structures'],self.config['errors'],protein_key,self.config.get('structure_attempts'))
         callback({'kind':'message','text':'Resumen de estructuras:\n'+'\n'.join(f"{r['identificador_entrada']} | {r['fuente_estructura']} | {r['estado']} | pLDDT={r['pLDDT_medio']}" for r in rows)})
 
     def _prepare_docking_files(self, callback=lambda event: None):
@@ -238,6 +246,9 @@ class Pipeline:
                     model=self.config['structures'].get(key,{})
                     jobs[-1]['Fuente_'+role]=model.get('structure_source','Desconocida')
                     jobs[-1]['pLDDT_'+role]=model.get('mean_plddt')
+                    jobs[-1]['Metodo_'+role]=model.get('prediction_method','')
+                    jobs[-1]['Origen_'+role]=model.get('source_entry',model.get('source',''))
+                    jobs[-1]['Calidad_'+role]='; '.join(f'{k}={v}' for k,v in model.get('quality_metrics',{}).items() if v is not None)
         self.config["jobs"], self.config["skipped_pairs"] = jobs, skipped
         for filename, rows, fields in [
             ("jobs.csv", jobs, ["receptor_pdb", "ligand_pdb", "jobname", "email"]),
@@ -310,6 +321,19 @@ class Pipeline:
                 break
 
     def table(self, mode='server'):
+        # Enriquecer sólo la vista, sin reconstruir ni cambiar hashes/tokens históricos.
+        jobs=[]
+        for original in self.config['jobs']:
+            job=dict(original)
+            for role in ('Ligando','Receptor'):
+                identifier=job.get(role,job.get('RBP','') if role=='Ligando' else '')
+                key=protein_key({'tipo':'ligando' if role=='Ligando' else 'receptor','identificador':identifier})
+                model=self.config['structures'].get(key,{})
+                method=model.get('structure_source') or ('AlphaFold' if 'alphafold' in model.get('source','').lower() else 'Desconocida')
+                if not job.get('Fuente_'+role) or job.get('Fuente_'+role)=='Desconocida': job['Fuente_'+role]=method
+                if not job.get('Metodo_'+role): job['Metodo_'+role]=model.get('prediction_method',method+'; modelo existente' if method=='AlphaFold' else '')
+                if not job.get('Origen_'+role): job['Origen_'+role]=model.get('source_entry',model.get('source',''))
+            jobs.append(job)
         if mode == 'local':
-            return summary(self.config['jobs'], self.directory / 'run-log.csv', self.config.get('local_results', {}), local=True)
-        return summary(self.config["jobs"], self.directory / "run-log.csv", self.cloud_results())
+            return summary(jobs, self.directory / 'run-log.csv', self.config.get('local_results', {}), local=True)
+        return summary(jobs, self.directory / "run-log.csv", self.cloud_results())

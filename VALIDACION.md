@@ -56,3 +56,11 @@ La preparación automatiza limpieza, selección inequívoca y trazabilidad. No g
 - En el mismo lote técnico se descargó AlphaFold Q15116 (25–170): 146 residuos y pLDDT medio 85.9441. Se preparó un par, sin enviar ni calcular docking. Esta combinación verifica software; no se propone como interacción positiva o control.
 - Ambas estructuras reales se recuperaron de caché con un cliente que rechaza acceso de red: dos aciertos, cero llamadas. Se probó apertura de GUI con fallback desactivado y las 18 columnas de resultados; se revisó visualmente la casilla y el botón de detención en la pestaña de proteínas.
 - No se garantiza disponibilidad futura ni longitud máxima oficial del servicio; 400 residuos es un límite conservador de la aplicación. No se ha instalado un predictor local. La validación no demuestra calidad de interfaces ni afinidades.
+
+## Configuración y proveedores gratuitos — 0.4.0
+
+- 50 pruebas automatizadas correctas: las 41 anteriores y pruebas de orden elegido, proveedor desactivado, respaldo tras 504, opción de detener ante fallo temporal, caché ordenada, no-fallback, mapeo SIFTS, rechazo de mutaciones/huecos, separación GMQE/pLDDT, persistencia de política y vista histórica sin mutación de jobnames.
+- Descargas reales para P69905, región 2–142: PDB 1BZ1 cadena A (resolución 1.59 Å) y modelo SWISS-MODEL Repository basado en 9vic.3.A (GMQE 0.902; QMEAN.avg_local_score 0.836). Ambos contienen 141 residuos con secuencia exacta. El pLDDT queda NA en ambos casos.
+- Se verificaron dos lotes técnicos desde caché con órdenes opuestos: ambos eligieron la fuente prioritaria, generaron un par y cero errores. No se creó run-log.csv ni se envió docking. Usan la misma proteína en ambos papeles sólo para comprobar el software, sin afirmar interacción.
+- Se revisaron visualmente el botón de tuerca y el diálogo de fuentes, y se comprobó el cambio de orden con «Bajar»; se canceló la prueba sin alterar las preferencias del usuario. El diálogo se centra explícitamente en pantalla.
+- No se incorporaron servicios de pago ni se crearon cuentas/tokens. SWISS-MODEL Repository descarga modelos existentes; el modelado nuevo de Workspace no está implementado. Gemmi 0.7.5 se instaló desde PyPI para lectura mmCIF.

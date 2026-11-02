@@ -4,7 +4,7 @@ Aplicación de escritorio en Python 3.9+ y Tkinter para preparar una matriz liga
 
 La versión actual ofrece también **cálculo local con HDOCKlite (Linux/WSL)**, preparación estructural trazable, descarga de modelos, apertura en PyMOL/ChimeraX y seguimiento automático con avisos de escritorio. Para el modo local lee [INSTALACION_LOCAL.md](INSTALACION_LOCAL.md). Los resultados de los dos motores se mantienen separados.
 
-La versión 0.3.0 añade caché validada y predicción alternativa con ESMFold cuando AlphaFold DB informa ausencia de modelo. Consulta [ESTRUCTURAS_ALTERNATIVAS.md](ESTRUCTURAS_ALTERNATIVAS.md) para la prioridad de fuentes, el CSV `pdb_local`, los límites, privacidad, reportes y flags CLI. No se cambian los PDB ni tokens de los lotes existentes.
+La versión 0.4.0 añade **⚙ Configuración** para ordenar y activar fuentes gratuitas: AlphaFold DB, PDB/PDBe, SWISS-MODEL Repository y ESMFold. Consulta [CONFIGURACION_PROVEEDORES.md](CONFIGURACION_PROVEEDORES.md) para prioridad, caché, respaldo tras errores temporales y procedencia. [ESTRUCTURAS_ALTERNATIVAS.md](ESTRUCTURAS_ALTERNATIVAS.md) describe validación, CSV `pdb_local`, privacidad y CLI. No se cambian los PDB ni tokens de los lotes existentes.
 
 ## 1. Instalación
 

@@ -54,7 +54,8 @@ def validate_pdb(path: Path) -> None:
 
 class StructureFetcher:
     def __init__(self, directory: Path, taxon: int = 9606, client=None, *, cache_directory=None,
-                 allow_fallback=True, stop=None, callback=lambda event: None, esm_max_length=400):
+                 allow_fallback=True, stop=None, callback=lambda event: None, esm_max_length=400,
+                 provider_order=None, use_structure_cache=True, continue_provider_errors=False):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.taxon = int(taxon)
@@ -68,6 +69,11 @@ class StructureFetcher:
         self.esm_max_length = int(esm_max_length)
         self.last_call = {}
         self.chains = ''
+        from provider_settings import validate_order
+        self.provider_order=validate_order(provider_order) if provider_order is not None else None
+        self.use_structure_cache=bool(use_structure_cache)
+        self.continue_provider_errors=bool(continue_provider_errors)
+        self.sequences={}
 
     def resolve(self, identifier: str) -> str:
         identifier = identifier.strip().upper()
@@ -194,6 +200,7 @@ class StructureFetcher:
                 self._wait(delay)
 
     def sequence(self, accession):
+        if accession in self.sequences: return self.sequences[accession]
         if REFSEQ.fullmatch(accession) and not ACCESSION.fullmatch(accession):
             response = self._request('get','https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi',
                 params={'db':'protein','id':accession,'rettype':'fasta','retmode':'text','tool':'DockingMatrix'},timeout=(10,60))
@@ -205,6 +212,7 @@ class StructureFetcher:
         sequence = ''.join(''.join(lines[1:]).split()).upper()
         if not re.fullmatch('[ACDEFGHIKLMNPQRSTVWY]+', sequence):
             raise StructureUnavailable('Secuencia vacía o con aminoácidos no estándar; no se modificó silenciosamente.')
+        self.sequences[accession]=sequence
         return sequence
 
     def _fold(self, accession, residue_range):
@@ -255,13 +263,13 @@ class StructureFetcher:
                 'domain_prediction':bool(start != 1 or end != len(sequence)),
                 'prediction_method':'ESMFold v1 API; domain isolated' if residue_range else 'ESMFold v1 API; full sequence'}
 
-    def fetch(self, identifier: str, local: Optional[str] = None, residue_range=None) -> dict:
+    def _fetch_legacy(self, identifier: str, local: Optional[str] = None, residue_range=None) -> dict:
         from structure_cache import pdb_info
         if self.stop is not None and self.stop.is_set():
             raise InterruptedError('Preparación detenida.')
         if residue_range and (len(residue_range)!=2 or not all(isinstance(n,int) for n in residue_range) or not 1 <= residue_range[0] <= residue_range[1]):
             raise ValueError('Rango de residuos inválido.')
-        cached = None if local else self.cache.find(identifier,self.taxon,residue_range,self.chains,self.allow_fallback)
+        cached = None if local or not self.use_structure_cache else self.cache.find(identifier,self.taxon,residue_range,self.chains,self.allow_fallback)
         if cached:
             source, metadata = cached
             target = self.directory/('cache_'+sha256(source)[:16]+'.pdb')
@@ -278,7 +286,7 @@ class StructureFetcher:
                 raise StructureUnavailable('RETRY_PENDING: no se pudo resolver el identificador. '+str(exc)) from exc
             raise
         if not local and accession != identifier.upper():
-            cached = self.cache.find(accession,self.taxon,residue_range,self.chains,self.allow_fallback)
+            cached = self.cache.find(accession,self.taxon,residue_range,self.chains,self.allow_fallback) if self.use_structure_cache else None
             if cached:
                 source,metadata=cached
                 target=self.directory/('cache_'+sha256(source)[:16]+'.pdb')
@@ -311,6 +319,13 @@ class StructureFetcher:
             if code == 400:
                 raise ValueError('INPUT_ERROR: el servicio rechazó la entrada (HTTP 400). '+str(exc)) from exc
             raise
+        return self._finalize(result,identifier,accession,residue_range)
+
+    def _finalize(self,result,identifier,accession,residue_range):
+        from structure_cache import pdb_info
+        from provider_settings import METHOD_PROVIDER
+        result.setdefault('provider_id',METHOD_PROVIDER.get(result['structure_source'],'local'))
+        result.setdefault('prediction_method','PDB seleccionado por el usuario' if result['structure_source']=='Local' else result['structure_source']+'; modelo existente')
         path=Path(result['path'])
         if self.chains:
             selected={c.strip() for c in self.chains.split(',') if c.strip()}
@@ -324,6 +339,77 @@ class StructureFetcher:
         result.update(sha256=sha256(path),cache_hit=False,retrieved_at=datetime.now(timezone.utc).isoformat())
         self.cache.store(path,result,identifier,accession,self.taxon,residue_range,self.chains)
         self.callback({'kind':'message','text':f'{identifier}: {result["structure_source"]} OK; pLDDT={result["mean_plddt"]}'})
+        return result
+
+    def fetch(self,identifier: str,local: Optional[str]=None,residue_range=None):
+        if self.provider_order is None or local:
+            return self._fetch_legacy(identifier,local,residue_range)
+        from provider_settings import PROVIDERS
+        from structure_providers import ProviderMiss, fetch_pdb_repository, fetch_swiss_repository
+        order=self.provider_order if self.allow_fallback else ['alphafold']
+        if self.stop is not None and self.stop.is_set(): raise InterruptedError('Preparación detenida.')
+        if residue_range and (len(residue_range)!=2 or not all(isinstance(n,int) for n in residue_range) or not 1<=residue_range[0]<=residue_range[1]):
+            raise ValueError('INPUT_ERROR: rango inválido.')
+        cached=self.cache.find(identifier,self.taxon,residue_range,self.chains,True,order) if self.use_structure_cache else None
+        if cached:
+            return self._use_cached(cached,identifier,order)
+        try:
+            accession=self.resolve(identifier)
+        except requests.RequestException as exc:
+            response=getattr(exc,'response',None)
+            if isinstance(exc,(requests.ConnectionError,requests.Timeout,requests.exceptions.RetryError)) or (response is not None and response.status_code in (429,500,502,503,504)):
+                raise StructureUnavailable('RETRY_PENDING: no se pudo resolver el identificador antes de consultar las estructuras. '+str(exc)) from exc
+            raise
+        if self.use_structure_cache and accession!=identifier.upper():
+            cached=self.cache.find(accession,self.taxon,residue_range,self.chains,True,order)
+            if cached: return self._use_cached(cached,identifier,order)
+        attempts=[]; transient=False
+        for provider in order:
+            if self.stop is not None and self.stop.is_set(): raise InterruptedError('Preparación detenida.')
+            label=PROVIDERS[provider]
+            self.callback({'kind':'message','text':f'{identifier}: consultando {label}…'})
+            try:
+                if provider in ('alphafold','pdb','swissmodel') and not ACCESSION.fullmatch(accession):
+                    raise ProviderMiss('Esta fuente necesita una accession UniProt; se conserva el identificador RefSeq para ESMFold.')
+                if provider=='alphafold':
+                    result=self._fetch_primary(accession,residue_range=residue_range)
+                    result.update(structure_source='AlphaFold',structure_status='OK',resolved_accession=accession)
+                elif provider=='pdb': result=fetch_pdb_repository(self,accession,residue_range)
+                elif provider=='swissmodel': result=fetch_swiss_repository(self,accession,residue_range)
+                else: result=self._fold(accession,residue_range)
+                result.update(provider_id=provider,provider_order_used=list(order),provider_attempts=attempts+[{'provider':provider,'status':'OK'}])
+                if provider in ('pdb','swissmodel'):
+                    result['residue_range']=list(residue_range) if residue_range else None
+                result=self._finalize(result,identifier,accession,residue_range)
+                return result
+            except InterruptedError: raise
+            except (requests.RequestException,ValueError,KeyError,RuntimeError) as exc:
+                response=getattr(exc,'response',None)
+                code=response.status_code if response is not None else None
+                temporary=isinstance(exc,(requests.ConnectionError,requests.Timeout,requests.exceptions.RetryError)) or code in (429,500,502,503,504)
+                transient=transient or temporary
+                attempts.append({'provider':provider,'status':'RETRY_PENDING' if temporary else 'NO_USABLE_MODEL','detail':str(exc)})
+                self.callback({'kind':'message','text':f'{label}: {attempts[-1]["status"]}: {exc}'})
+                if code==400 or str(exc).startswith('INPUT_ERROR:'):
+                    raise ValueError('INPUT_ERROR: '+str(exc)) from exc
+                if temporary and not self.continue_provider_errors:
+                    pending=StructureUnavailable('RETRY_PENDING: '+str(exc))
+                    pending.provider_attempts=attempts
+                    raise pending from exc
+        error=StructureUnavailable(('RETRY_PENDING: ' if transient else '')+'Ningún proveedor habilitado pudo obtener una estructura válida. '+' | '.join(a['provider']+': '+a['detail'] for a in attempts))
+        error.provider_attempts=attempts
+        raise error
+
+    def _use_cached(self,cached,identifier,order):
+        source,metadata=cached
+        target=self.directory/('cache_'+sha256(source)[:16]+'.pdb')
+        shutil.copyfile(source,target)
+        result={**metadata,'path':str(target.resolve()),'cache_hit':True,'provider_order_used':list(order)}
+        from provider_settings import METHOD_PROVIDER
+        provider=result.get('provider_id',METHOD_PROVIDER.get(result['structure_source'],'unknown'))
+        result['origin_provider_attempts']=metadata.get('provider_attempts',[])
+        result['provider_attempts']=[{'provider':provider,'status':'CACHE_HIT'}]
+        self.callback({'kind':'message','text':f'{identifier}: Caché válida · {result["structure_source"]}'})
         return result
 
     def fetch_pdb(self, code: str) -> dict:

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-APP_VERSION = '0.3.0'
+APP_VERSION = '0.4.0'
 AA = dict(zip('ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR TRP TYR VAL'.split(),
               'ARNDCQEGHILKMFPSTWYV'))
 
@@ -70,7 +70,7 @@ class StructureCache:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
 
-    def find(self, identifier, taxon, residue_range, chains, allow_fallback):
+    def find(self, identifier, taxon, residue_range, chains, allow_fallback, provider_order=None):
         """Los sidecars son el índice offline; nunca inferir procedencia por el nombre."""
         candidates = []
         for sidecar in self.directory.glob('*.json'):
@@ -83,15 +83,21 @@ class StructureCache:
                 if data['requested_range'] != (list(residue_range) if residue_range else None) or data['requested_chains'] != chains:
                     continue
                 method = data['metadata']['structure_source']
-                if method not in (('AlphaFold', 'ESMFold') if allow_fallback else ('AlphaFold',)):
-                    continue
+                if provider_order is not None:
+                    from provider_settings import METHOD_PROVIDER
+                    provider=data['metadata'].get('provider_id',METHOD_PROVIDER.get(method))
+                    if provider not in provider_order: continue
+                    rank=provider_order.index(provider)
+                else:
+                    if method not in (('AlphaFold', 'ESMFold') if allow_fallback else ('AlphaFold',)): continue
+                    rank=method!='AlphaFold'
                 path = sidecar.with_suffix('.pdb')
                 if digest(path.read_bytes()) != data['pdb_sha256']:
                     continue
                 info = pdb_info(path, method)
                 if info['sequence_sha256'] != data['sequence_sha256']:
                     continue
-                candidates.append((method != 'AlphaFold', sidecar, path, data))
+                candidates.append((rank, sidecar, path, data))
             except (OSError, ValueError, KeyError, TypeError):
                 continue
         if not candidates:
@@ -121,9 +127,10 @@ class StructureCache:
         tmp.replace(target.with_suffix('.json'))
 
 
-def write_structure_reports(directory, proteins, structures, errors, key_function):
+def write_structure_reports(directory, proteins, structures, errors, key_function, attempts=None):
     fields = ['identificador_entrada','accession_resuelto','tipo','fuente_estructura','pLDDT_medio',
-              'pct_residuos_pLDDT_bajo','rango_usado','sha256_pdb','ruta_pdb','estado','detalle','cache_hit']
+              'pct_residuos_pLDDT_bajo','rango_usado','sha256_pdb','ruta_pdb','estado','detalle','cache_hit',
+              'metodo_generacion','entrada_origen','metricas_calidad','intentos_proveedor']
     rows, manual = [], []
     for item in proteins:
         key = key_function(item)
@@ -133,9 +140,12 @@ def write_structure_reports(directory, proteins, structures, errors, key_functio
             state = model.get('error_status', 'FAILED') if model else ('RETRY_PENDING' if error.startswith('RETRY_PENDING:') else 'NEEDS_MANUAL')
             if error.startswith('INPUT_ERROR:'):
                 state='INPUT_ERROR'
-        row = dict(zip(fields, [item['identificador'],model.get('resolved_accession',model.get('uniprot','')),
+        row = dict(zip(fields[:12], [item['identificador'],model.get('resolved_accession',model.get('uniprot','')),
             item['tipo'],model.get('structure_source','Desconocida'),model.get('mean_plddt'),model.get('pct_plddt_below_50'),
             model.get('residue_range',''),model.get('sha256',''),model.get('path',''),state,error,model.get('cache_hit',False)]))
+        row.update(metodo_generacion=model.get('prediction_method',''),entrada_origen=model.get('source_entry',model.get('source','')),
+                   metricas_calidad=json.dumps(model.get('quality_metrics',{}),ensure_ascii=False),
+                   intentos_proveedor=json.dumps(model.get('provider_attempts',(attempts or {}).get(key,[])),ensure_ascii=False))
         rows.append(row)
         if error:
             manual.append(f'{key}\t{state}\t{error}')
