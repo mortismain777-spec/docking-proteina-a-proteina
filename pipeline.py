@@ -12,6 +12,7 @@ from data_fetcher import StructureFetcher, sha256, validate_pdb
 from job_runner import accepted, latest_jobs
 from results_parser import fetch_score, summary
 from preparation import prepare_protein
+from structure_cache import APP_VERSION, pdb_info, write_structure_reports
 
 SCHEMA = ["tipo", "identificador", "nombre_comun", "categoria"]
 CONTROL = {"tipo": "receptor", "identificador": "P02769", "nombre_comun": "Albumina_bovina_referencia", "categoria": "control"}
@@ -63,6 +64,8 @@ def read_inputs(text: str) -> list:
         chains = (raw.get('cadenas') or '').strip()
         if chains:
             item['cadenas'] = chains
+        if (raw.get('pdb_local') or '').strip():
+            item['pdb_local'] = raw['pdb_local'].strip()
         key = protein_key(item)
         if key in seen:
             if seen[key] != item:
@@ -87,7 +90,7 @@ class Pipeline:
         self.directory, self.config = Path(directory), config
 
     @classmethod
-    def create(cls, directory: Path, items: list, taxon: int, local: dict, dummy: bool, email: str, albumin: bool = True, region_mode='full'):
+    def create(cls, directory: Path, items: list, taxon: int, local: dict, dummy: bool, email: str, albumin: bool = True, region_mode='full', allow_fallback=True, cache_directory=None, esm_max_length=400):
         directory = Path(directory).resolve()
         directory.mkdir(parents=True, exist_ok=True)
         if (directory / "pipeline_config.json").exists():
@@ -104,6 +107,9 @@ class Pipeline:
                   "local_pdb": local, "email": email, "structures": {}, "errors": {}, "jobs": [], "results": {},
                   "optional_references": {"albumin": albumin, "ubiquitin": dummy},
                   'region_mode': region_mode,
+                  'app_version': APP_VERSION, 'allow_fallback': bool(allow_fallback),
+                  'cache_directory': str(Path(cache_directory or Path(__file__).parent/'pdb_cache').resolve()),
+                  'esm_max_length': int(esm_max_length),
                   "control_note": "La categoría control es una etiqueta; documentar su evidencia experimental para cada ligando."}
         instance = cls(directory, config)
         instance.save()
@@ -124,8 +130,10 @@ class Pipeline:
         write_json(self.directory / "pipeline_config.json", self.config)
 
     def prepare(self, callback=lambda event: None, stop=None):
-        fetcher = StructureFetcher(self.directory / "structures", self.config["taxon"])
-        for item in self.config["proteins"]:
+        fetcher = StructureFetcher(self.directory / "structures", self.config["taxon"],
+            cache_directory=self.config.get('cache_directory'), allow_fallback=self.config.get('allow_fallback',False),
+            stop=stop, callback=callback, esm_max_length=self.config.get('esm_max_length',400))
+        for index,item in enumerate(self.config["proteins"],1):
             if stop and stop.is_set():
                 break
             key = protein_key(item)
@@ -145,9 +153,11 @@ class Pipeline:
                     if sha256(Path(previous["path"])) != previous["sha256"]:
                         raise ValueError("El PDB cambió; crea otro lote para preservar resultados anteriores.")
                     self.config["errors"].pop(key, None)
+                    callback({'kind':'structure_progress','completed':index,'total':len(self.config['proteins'])})
                     continue
                 callback({"kind": "message", "text": f"Estructura: {protein_label(item)}"})
-                local = self.config["local_pdb"].get(key)
+                local = self.config["local_pdb"].get(key) or item.get('pdb_local')
+                fetcher.chains = item.get('cadenas','')
                 if item["identificador"].startswith("PDB:") and not local:
                     result = fetcher.fetch_pdb(item["identificador"][4:])
                 else:
@@ -158,13 +168,20 @@ class Pipeline:
                         result = fetcher.fetch(item["identificador"], local)
                 self.config["structures"][key] = result
                 self.config["errors"].pop(key, None)
+            except InterruptedError:
+                callback({'kind':'message','text':'Preparación detenida; puedes reanudar este lote.'})
+                break
             except Exception as exc:
                 self.config["errors"][key] = str(exc)
                 callback({"kind": "message", "text": f"ERROR {protein_label(item)}: {exc}"})
             self.save()
+            callback({'kind':'structure_progress','completed':index,'total':len(self.config['proteins'])})
+            write_structure_reports(self.directory,self.config['proteins'],self.config['structures'],self.config['errors'],protein_key)
         self._prepare_docking_files(callback)
         self._build_jobs()
         self.save()
+        rows=write_structure_reports(self.directory,self.config['proteins'],self.config['structures'],self.config['errors'],protein_key)
+        callback({'kind':'message','text':'Resumen de estructuras:\n'+'\n'.join(f"{r['identificador_entrada']} | {r['fuente_estructura']} | {r['estado']} | pLDDT={r['pLDDT_medio']}" for r in rows)})
 
     def _prepare_docking_files(self, callback=lambda event: None):
         self.config.setdefault('docking_structures', {})
@@ -184,12 +201,12 @@ class Pipeline:
             try:
                 target = self.directory / 'prepared' / (hashlib.sha256(key.encode()).hexdigest()[:8] + '_' + Path(source['path']).name)
                 report = prepare_protein(Path(source['path']), target, item.get('cadenas', ''))
-                if 'alphafold' in source.get('source', ''):
-                    confidence = [float(line[60:66]) for line in Path(target).read_text().splitlines()
-                                  if line.startswith('ATOM  ') and line[12:16].strip() == 'CA' and len(line) >= 66]
-                    if confidence:
-                        report['mean_plddt'] = sum(confidence) / len(confidence)
-                        report['fraction_plddt_below_50'] = sum(v < 50 for v in confidence) / len(confidence)
+                if source.get('structure_source') in ('AlphaFold','ESMFold') or 'alphafold' in source.get('source', ''):
+                    confidence=pdb_info(target,source.get('structure_source','AlphaFold'))
+                    if confidence['mean_plddt'] is not None:
+                        report['mean_plddt'] = confidence['mean_plddt']
+                        report['fraction_plddt_below_50'] = confidence['pct_plddt_below_50']/100
+                        report['confidence_input_scale'] = confidence['confidence_input_scale']
                         if report['fraction_plddt_below_50'] > 0.2:
                             report['warnings'].append('Más del 20% de residuos tienen pLDDT < 50; revisar dominios y regiones desordenadas.')
                 target.with_suffix('.preparation.json').write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
@@ -217,6 +234,10 @@ class Pipeline:
                 jobs.append({"receptor_pdb": structures[rk]["path"], "ligand_pdb": structures[lk]["path"],
                              "jobname": name, "email": self.config["email"], "Ligando": ligand["identificador"],
                              "Receptor": receptor["identificador"], "Categoria_Receptor": receptor["categoria"]})
+                for role,key in (('Ligando',lk),('Receptor',rk)):
+                    model=self.config['structures'].get(key,{})
+                    jobs[-1]['Fuente_'+role]=model.get('structure_source','Desconocida')
+                    jobs[-1]['pLDDT_'+role]=model.get('mean_plddt')
         self.config["jobs"], self.config["skipped_pairs"] = jobs, skipped
         for filename, rows, fields in [
             ("jobs.csv", jobs, ["receptor_pdb", "ligand_pdb", "jobname", "email"]),

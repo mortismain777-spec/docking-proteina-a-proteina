@@ -26,4 +26,7 @@ submission-in-flight.json
 *.pdb
 *.xlsx
 pipeline_config.json
+pdb_cache/
+structure_report.csv
+needs_manual_modeling.txt
 *.log

@@ -29,7 +29,7 @@ STATE_LABELS = {'preparado':'Listo para ejecutar', 'enviado':'Aceptado por HDOCK
 
 
 class App(tk.Tk):
-    def __init__(self):
+    def __init__(self, allow_fallback=True):
         super().__init__()
         self.title('Docking Matrix · Proteína–proteína')
         self.geometry(f'{min(1240,self.winfo_screenwidth()-80)}x{min(800,self.winfo_screenheight()-100)}')
@@ -38,6 +38,7 @@ class App(tk.Tk):
         self.events, self.stop_event = queue.Queue(), threading.Event()
         self.busy, self.actions, self.last_refresh = False, [], 0
         self.preferences = {}
+        self.initial_fallback = bool(allow_fallback)
         try:
             self.preferences = json.loads((ROOT/'user_settings.json').read_text(encoding='utf-8'))
         except (OSError,ValueError):
@@ -85,11 +86,14 @@ class App(tk.Tk):
         self.region=tk.StringVar(value='Estructura completa')
         ttk.Label(selection,text='Región a preparar:').pack(side='left')
         ttk.Combobox(selection,textvariable=self.region,values=['Estructura completa','Región extracelular anotada en UniProt'],state='readonly',width=44).pack(side='left',padx=6)
-        ttk.Label(inputs,text='Descarga y preparación de átomos pesados. Columnas opcionales: residuo_inicio,residuo_fin,cadenas.\nUn nombre ambiguo requiere UniProt ID. No se reconstruyen residuos ni se inventan controles negativos.',wraplength=1120).pack(anchor='w',pady=5)
+        self.allow_fallback=tk.BooleanVar(value=self.initial_fallback)
+        ttk.Checkbutton(inputs,text='Permitir predicción alternativa con ESMFold (envía la secuencia a un servidor remoto)',variable=self.allow_fallback).pack(anchor='w')
+        ttk.Label(inputs,text='Columnas opcionales: residuo_inicio,residuo_fin,cadenas,pdb_local. ESMFold: límite conservador de 400 residuos por solicitud.\nUn nombre ambiguo requiere accession. La confianza del modelo debe revisarse antes del docking.',wraplength=1120).pack(anchor='w',pady=5)
         self.local_label=ttk.Label(inputs,text='PDB propios asignados: 0'); self.local_label.pack(anchor='w')
         prepbar=ttk.Frame(inputs); prepbar.pack(fill='x',pady=6)
         for label,command in [('Preparar proteínas y crear pares',self.prepare),('Reintentar preparación que falló',self.retry_structures),('Ver informe de preparación',self.open_preparation)]:
             self.button(prepbar,label,command)
+        ttk.Button(prepbar,text='Detener preparación',command=self.stop).pack(side='left',padx=3)
 
         self.modebar=ttk.Frame(execution); self.modebar.pack(fill='x')
         self.mode=tk.StringVar(value='Servidor HDOCK')
@@ -193,7 +197,17 @@ class App(tk.Tk):
     def load_csv(self):
         path=filedialog.askopenfilename(filetypes=[('CSV','*.csv'),('Todos','*.*')])
         if path:
-            self.guarded(lambda:self.set_text(Path(path).read_text(encoding='utf-8-sig')))
+            def operation():
+                source=Path(path).resolve()
+                reader=csv.DictReader(io.StringIO(source.read_text(encoding='utf-8-sig')))
+                rows=list(reader)
+                for row in rows:
+                    if (row.get('pdb_local') or '').strip():
+                        local=Path(row['pdb_local'].strip()).expanduser()
+                        row['pdb_local']=str(local if local.is_absolute() else source.parent/local)
+                output=io.StringIO(); writer=csv.DictWriter(output,fieldnames=reader.fieldnames)
+                writer.writeheader(); writer.writerows(rows); self.set_text(output.getvalue())
+            self.guarded(operation)
 
     def example(self):
         self.set_text((ROOT/'ejemplo_entrada.csv').read_text(encoding='utf-8-sig'))
@@ -270,21 +284,24 @@ class App(tk.Tk):
             if not parent: return
             folder=Path(parent)/datetime.now().strftime('lote_%Y%m%d_%H%M%S')
             region='extracellular' if self.region.get().startswith('Región') else 'full'
-            self.pipeline=Pipeline.create(folder,items,taxon,dict(self.local),self.dummy.get(),self.email.get().strip(),albumin=self.albumin.get(),region_mode=region)
+            self.pipeline=Pipeline.create(folder,items,taxon,dict(self.local),self.dummy.get(),self.email.get().strip(),albumin=self.albumin.get(),region_mode=region,allow_fallback=self.allow_fallback.get())
             self.run_task(lambda:self.pipeline.prepare(self.events.put,self.stop_event),'Descargando y preparando proteínas; todavía no se ejecuta docking…')
         self.guarded(operation)
 
     def retry_structures(self):
-        if self.require_batch(): self.run_task(lambda:self.pipeline.prepare(self.events.put,self.stop_event),'Reintentando preparación fallida…')
+        if self.require_batch():
+            self.pipeline.config['allow_fallback']=self.allow_fallback.get(); self.pipeline.save()
+            self.run_task(lambda:self.pipeline.prepare(self.events.put,self.stop_event),'Reintentando preparación fallida…')
 
     def open_preparation(self):
-        if self.require_batch(): self.open_folder(self.pipeline.directory/('prepared' if (self.pipeline.directory/'prepared').exists() else 'structures'))
+        if self.require_batch(): self.open_folder(self.pipeline.directory)
 
     def open_batch(self):
         path=filedialog.askdirectory(title='Carpeta que contiene pipeline_config.json')
         if path:
             def operation():
                 self.pipeline=Pipeline.load(Path(path)); self.local=dict(self.pipeline.config['local_pdb'])
+                self.allow_fallback.set(self.pipeline.config.get('allow_fallback',False))
                 engine=self.pipeline.config.get('engine',{})
                 self.script.set(engine.get('script',self.script.get())); self.python.set(engine.get('python',self.python.get()))
                 self.local_label.config(text=f'PDB propios asignados: {len(self.local)}')
@@ -373,7 +390,7 @@ class App(tk.Tk):
     def stop(self):
         self.stop_event.set()
         if self.runner: self.runner.stop()
-        self.status.set('Se pausará después del par activo. No cancela cálculos ya aceptados por HDOCK.')
+        self.status.set('Detención solicitada. La preparación guarda lo completado; una petición en curso puede tardar hasta 300 s. El envío/cálculo activo termina antes de pausar.')
 
     def log(self,text):
         self.console.config(state='normal'); self.console.insert('end',text+'\n'); self.console.see('end'); self.console.config(state='disabled')
@@ -395,6 +412,8 @@ class App(tk.Tk):
                 elif kind=='job':
                     row=event['row']; self.log(f"{row['jobname']} | token={row.get('token','')} | {row.get('error','')}"); self.refresh()
                 elif kind=='local_job': self.log(event['name']+': '+event['result']['state']); self.refresh()
+                elif kind=='structure_progress':
+                    self.progress.config(maximum=event['total'],value=event['completed'])
                 elif kind=='result_ready':
                     if self.notifications.get(): self.show_notification('Resultado de HDOCK disponible',event['name']+': score disponible; revisa los modelos.')
                     self.refresh()
@@ -486,4 +505,28 @@ class App(tk.Tk):
 
 
 if __name__=='__main__':
-    App().mainloop()
+    import argparse
+    parser=argparse.ArgumentParser(description='Docking Matrix: estructuras, docking y modelos')
+    flags=parser.add_mutually_exclusive_group()
+    flags.add_argument('--allow-fallback',dest='allow_fallback',action='store_true')
+    flags.add_argument('--no-fallback',dest='allow_fallback',action='store_false')
+    parser.set_defaults(allow_fallback=True)
+    parser.add_argument('--prepare-csv',help='Preparar estructuras sin abrir la GUI ni enviar docking')
+    parser.add_argument('--output',help='Carpeta nueva para el lote CLI')
+    parser.add_argument('--taxon',type=int,default=9606)
+    parser.add_argument('--esm-max-length',type=int,default=400,help='Límite conservador local; no garantiza aceptación del servidor')
+    args=parser.parse_args()
+    if args.prepare_csv:
+        if not args.output: parser.error('--prepare-csv requiere --output')
+        source=Path(args.prepare_csv).resolve()
+        items=read_inputs(source.read_text(encoding='utf-8-sig'))
+        for item in items:
+            if item.get('pdb_local'):
+                path=Path(item['pdb_local']).expanduser()
+                item['pdb_local']=str(path if path.is_absolute() else source.parent/path)
+        batch=Pipeline.create(Path(args.output),items,args.taxon,{},False,'',albumin=False,allow_fallback=args.allow_fallback,esm_max_length=args.esm_max_length)
+        try: batch.prepare(lambda event:print(event.get('text',''),flush=True) if event.get('kind')=='message' else None)
+        except KeyboardInterrupt:
+            batch.save(); print('Interrumpido: abre el lote para reanudarlo.')
+    else:
+        App(allow_fallback=args.allow_fallback).mainloop()
