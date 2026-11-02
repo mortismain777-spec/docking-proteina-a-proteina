@@ -1,5 +1,19 @@
 # Docking Matrix: proteína–proteína
 
+**Autor:** Andrés Ahumada · [GitHub: mortismain777-spec](https://github.com/mortismain777-spec) · **Contacto:** [mortismain777@gmail.com](mailto:mortismain777@gmail.com)
+
+## Licencia, cita y colaboración
+
+El uso personal, educativo y la investigación no comercial están permitidos gratuitamente bajo la [licencia académica y no comercial con atribución](LICENSE). Conserva la autoría y la licencia al compartir copias o versiones modificadas, indica tus cambios y cita el software cuando publiques resultados obtenidos con él. La referencia está en [CITATION.cff](CITATION.cff); una cita del software no implica coautoría de una publicación.
+
+> Ahumada, A. (2026). *Docking Matrix: pipeline de docking proteína-proteína* (versión 0.4.0) [Software]. https://github.com/mortismain777-spec/docking-proteina-a-proteina
+
+**Colaboración con empresas:** estoy abierto a colaborar con empresas, laboratorios y equipos de investigación interesados en utilizar, adaptar o ampliar la aplicación. Podemos conversar sobre colaboraciones científicas, desarrollos conjuntos y condiciones de uso adaptadas al proyecto. Cualquier uso empresarial, incluida la investigación interna, requiere autorización previa por escrito. Escríbeme a **mortismain777@gmail.com**; conversar no implica necesariamente un pago ni concede automáticamente autorización.
+
+**Sugerencias y comentarios:** son bienvenidos desde el primer momento. Si encuentras algo confuso, detectas un error o tienes una idea, abre un [Issue](https://github.com/mortismain777-spec/docking-proteina-a-proteina/issues) para que pueda revisarlo y considerar su incorporación. También se aceptan propuestas de código y colaboraciones científicas; consulta [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Este proyecto publica su código con restricciones de uso comercial; no se presenta como software open source bajo una licencia OSI. Las herramientas, motores y datos externos conservan sus propias condiciones: consulta [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 Aplicación de escritorio en Python 3.9+ y Tkinter para preparar una matriz ligando × receptor, delegar envíos a HDOCK mediante `hdock_batch` y exportar resultados a CSV/Excel. Ambos participantes son proteínas. Interfaz y comentarios en español.
 
 La versión actual ofrece también **cálculo local con HDOCKlite (Linux/WSL)**, preparación estructural trazable, descarga de modelos, apertura en PyMOL/ChimeraX y seguimiento automático con avisos de escritorio. Para el modo local lee [INSTALACION_LOCAL.md](INSTALACION_LOCAL.md). Los resultados de los dos motores se mantienen separados.
@@ -140,7 +154,7 @@ Si se interrumpe el proceso en medio de un envío, `submission-in-flight.json` c
 
 «Pausar tras el par activo» espera el proceso activo para conservar token o resultado local. No cancela cálculos de HDOCK. No cambies estructuras o borres bitácoras del lote; una huella diferente exige un lote nuevo. Las rutas son absolutas: mantén la carpeta en su ubicación original.
 
-No se suben al repositorio los lotes, correos, estructuras ni resultados: están excluidos de Git por defecto. La visibilidad del repositorio se mantiene privada hasta que su propietario decida cambiarla.
+Los lotes, correos de ejecuciones, estructuras, configuraciones personales y resultados están excluidos de Git por defecto. El código y su historial publicados son públicos; el único correo de contacto del autor publicado intencionalmente aquí es mortismain777@gmail.com. Revisa tus archivos y los cambios preparados antes de contribuir para conservar esa separación.
 
 ## 7. Desarrollo y pruebas
 

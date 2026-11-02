@@ -1,0 +1,86 @@
+Docking Matrix — Licencia académica y no comercial con atribución
+Versión 1.0 — 2 de noviembre de 2026
+Identificador del proyecto: LicenseRef-Docking-Matrix-ANC-1.0
+
+Copyright (c) 2026 Andrés Ahumada
+Contacto para autorizaciones y colaboraciones: mortismain777@gmail.com
+Proyecto: https://github.com/mortismain777-spec/docking-proteina-a-proteina
+
+1. Alcance
+
+Esta licencia se aplica al código y la documentación originales de Docking Matrix
+sobre los que Andrés Ahumada pueda conceder derechos. No concede derechos sobre
+software, modelos, datos, estructuras, publicaciones o servicios de terceros.
+Esos componentes conservan sus propias licencias, condiciones y requisitos de cita.
+
+2. Permisos para uso personal e investigación no comercial
+
+Se concede gratuitamente a personas naturales y a instituciones académicas o de
+investigación sin fines de lucro permiso no exclusivo para utilizar, ejecutar,
+estudiar, copiar, modificar y compartir este software para fines personales,
+educativos y de investigación no comercial, sujeto a las condiciones siguientes.
+No se exige publicar las modificaciones que se mantengan para uso privado permitido.
+
+3. Atribución, modificaciones y cita
+
+Las copias y versiones modificadas que se compartan deben conservar este archivo,
+el aviso de copyright y el reconocimiento a Andrés Ahumada y al proyecto original,
+incluido el enlace al repositorio. Las versiones modificadas deben indicar qué se
+cambió y quién realizó los cambios, sin atribuirlos al autor original ni sugerir
+su respaldo. Estas condiciones y las restricciones de uso empresarial y comercial
+deben mantenerse en las versiones derivadas que se distribuyan.
+
+Las publicaciones, tesis, informes, presentaciones u otros resultados que se
+difundan públicamente y que utilicen sustancialmente este software deben reconocer
+y citar Docking Matrix y a Andrés Ahumada. Puede utilizarse la referencia de
+CITATION.cff, indicando la versión utilizada. El uso privado permitido, sin difusión
+de resultados, no exige publicar una cita ni contactar al autor.
+
+La atribución o cita del software no implica coautoría de trabajos científicos.
+También deben respetarse las citas exigidas por las herramientas y fuentes externas.
+
+4. Uso empresarial o comercial: autorización previa
+
+No se concede bajo esta licencia permiso para uso por empresas con fines de lucro,
+ni por personas o entidades que actúen por su cuenta para sus proyectos, incluso
+cuando se trate de investigación interna, evaluación o desarrollo sin venta inmediata.
+También requieren autorización los usos del software como parte de productos o
+servicios comerciales o de servicios remunerados de análisis para terceros.
+
+La investigación académica realizada por encargo de una empresa o para entregables
+específicos de un proyecto empresarial requiere igualmente autorización. La mera
+recepción de una donación general, sin realizar el uso por cuenta de una empresa,
+no convierte por sí sola toda la investigación de una institución en uso empresarial.
+
+Para esos usos debe obtenerse autorización previa y expresa por escrito de Andrés
+Ahumada en mortismain777@gmail.com. El autor está abierto a colaboraciones científicas,
+desarrollos conjuntos y acuerdos de uso empresarial adaptados a cada proyecto.
+Contactarlo no concede por sí solo autorización ni obliga a pagar: las condiciones,
+gratuitas o remuneradas, se acuerdan por separado antes del uso correspondiente.
+
+La visualización pública y las funciones de fork de la plataforma GitHub se rigen
+también por sus condiciones aplicables; su disponibilidad no constituye una
+autorización para ejecutar o explotar el software con fines empresariales o comerciales.
+
+5. Límites de los derechos concedidos
+
+No se permite eliminar los avisos de autoría o esta licencia, ni conceder a terceros
+permisos empresariales o comerciales sobre el código original sin autorización.
+No se concede exclusividad ni derecho a utilizar el nombre del autor como respaldo
+publicitario. Los derechos que no se conceden expresamente quedan reservados.
+Una autorización sobre este proyecto no sustituye los permisos necesarios de terceros.
+
+6. Sin garantía
+
+El software se proporciona tal como está, sin garantías expresas o implícitas, en
+la medida permitida por la ley. No se garantiza exactitud científica, disponibilidad
+de servicios externos, aptitud para una finalidad concreta ni ausencia de errores.
+Los resultados requieren revisión y validación apropiadas. En la medida permitida
+por la ley, el autor no responde por daños derivados del uso o imposibilidad de uso.
+Esta cláusula no excluye derechos o responsabilidades que la ley no permita excluir.
+
+7. Licencia personalizada
+
+Esta es una licencia de código disponible para uso académico y no comercial con
+atribución. No es MIT, GPL ni una licencia aprobada como open source por la OSI.
+Publicar el código no elimina las restricciones aquí indicadas.

@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "Si utilizas Docking Matrix en resultados publicados, cita este software e indica la versión utilizada. Consulta LICENSE para los permisos de uso."
+type: software
+title: "Docking Matrix: pipeline de docking proteína-proteína"
+authors:
+  - family-names: "Ahumada"
+    given-names: "Andrés"
+    email: "mortismain777@gmail.com"
+version: "0.4.0"
+date-released: "2026-11-02"
+url: "https://github.com/mortismain777-spec/docking-proteina-a-proteina"
+repository-code: "https://github.com/mortismain777-spec/docking-proteina-a-proteina"
+license-url: "https://github.com/mortismain777-spec/docking-proteina-a-proteina/blob/main/LICENSE"
