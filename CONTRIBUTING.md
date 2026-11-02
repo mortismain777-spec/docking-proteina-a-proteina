@@ -1,5 +1,9 @@
 # Sugerencias, errores y contribuciones
 
+[English](CONTRIBUTING.en.md) | **Español**
+
+Puedes escribir los Issues en español o inglés. Para cambios de documentación, actualiza ambas versiones o identifica claramente la traducción pendiente. Conserva encabezados y valores aceptados de CSV, flags y nombres de archivo salvo que también se modifique la aplicación.
+
 Las sugerencias, comentarios y reportes de errores son bienvenidos desde el primer momento. Si encuentras algo confuso, detectas un problema o tienes una idea para mejorar la aplicación, abre un [Issue](https://github.com/mortismain777-spec/docking-proteina-a-proteina/issues) para que pueda revisarlo y considerar su incorporación. No necesitas esperar a tener una solución.
 
 Describe qué esperabas, qué ocurrió, la versión de la app y los pasos para reproducirlo. Si se trata de una propuesta, explica qué necesidad resuelve. Antes de compartir registros, elimina correos de terceros, rutas privadas, credenciales, tokens y secuencias que no deban publicarse. Para información privada utiliza mortismain777@gmail.com.

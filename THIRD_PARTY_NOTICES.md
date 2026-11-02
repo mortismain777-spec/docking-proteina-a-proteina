@@ -1,5 +1,7 @@
 # Herramientas, datos y servicios externos
 
+[English](THIRD_PARTY_NOTICES.en.md) | **Español**
+
 La licencia personalizada de Docking Matrix se aplica únicamente a los componentes originales del proyecto. No cambia las condiciones de sus dependencias ni concede derechos sobre código, ejecutables, modelos, estructuras o datos de terceros.
 
 | Componente | Relación con la app | Condiciones oficiales |

@@ -1,5 +1,7 @@
 # Obtención alternativa de estructuras — versión 0.4.0
 
+[English](ESTRUCTURAS_ALTERNATIVAS.en.md) | **Español** · [Guía principal](README.es.md)
+
 La prioridad es configurable desde **⚙ Configuración**, incluyendo PDB y SWISS-MODEL Repository. Consulta [CONFIGURACION_PROVEEDORES.md](CONFIGURACION_PROVEEDORES.md) para la política completa; los lotes anteriores conservan sus opciones hasta que se cambien explícitamente.
 
 ## Uso desde la aplicación
@@ -16,7 +18,7 @@ Para reanudar abre el lote guardado y pulsa **Reintentar preparación que falló
 ## Prioridad y errores
 
 1. PDB seleccionado mediante la interfaz o columna `pdb_local`. La selección de la interfaz tiene prioridad si también se indicó un archivo en CSV.
-2. Caché válida de AlphaFold; si está permitido, caché de ESMFold.
+2. Caché validada, si está activada la opción de usarla antes de consultar fuentes, respetando las fuentes activas y su orden. Sin fallback, sólo se reutiliza automáticamente caché de AlphaFold. Consulta la guía de configuración para la política completa.
 3. Consultar fuentes activas según el orden del lote: por defecto AlphaFold DB, PDB/PDBe, SWISS-MODEL Repository y ESMFold. AlphaFold conserva selección canónica, comprobación de fragmentos y recorte existentes.
 4. Si una fuente no ofrece un modelo utilizable, pasar a la siguiente. Los errores temporales permiten continuar sólo si la opción correspondiente está activada. Un 404 en un enlace PDB no se interpreta como ausencia en AlphaFold. Las respuestas ambiguas no se resuelven eligiendo un fragmento arbitrario.
 5. Las accesiones RefSeq/GenBank de proteína reconocidas no son claves de AlphaFold: si el fallback está permitido se obtiene FASTA de NCBI y se utiliza ESMFold. No es necesario que tengan equivalencia UniProt. Se rechazan entradas sin una secuencia única de aminoácidos estándar.

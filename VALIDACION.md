@@ -1,5 +1,9 @@
 # Estado de la primera versión
 
+[English](VALIDACION.en.md) | **Español** · [Guía principal](README.es.md)
+
+Este documento conserva comprobaciones históricas. Las secciones posteriores actualizan los límites de la primera versión; las comprobaciones de software no validan predicciones científicas.
+
 Fecha de revisión: 30 de octubre de 2026.
 
 Comprobaciones realizadas con Python 3.12 en Windows:

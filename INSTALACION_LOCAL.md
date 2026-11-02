@@ -1,5 +1,7 @@
 # Cálculo local con HDOCKlite
 
+[English](INSTALACION_LOCAL.en.md) | **Español** · [Guía principal](README.es.md)
+
 El modo local ejecuta HDOCKlite global ab initio. No requiere una grid box manual: explora posiciones y orientaciones de ambos participantes. Las dimensiones registradas en el informe describen las estructuras; no son una caja de búsqueda ni una optimización del bolsillo. El servidor web puede utilizar plantillas, por lo que los modos no deben mezclarse como si fueran el mismo protocolo.
 
 ## Windows: instalar WSL una vez

@@ -1,5 +1,7 @@
 # Configurar fuentes gratuitas de estructuras — 0.4.0
 
+[English](CONFIGURACION_PROVEEDORES.en.md) | **Español** · [Guía principal](README.es.md)
+
 ## Primer uso
 
 1. Cierra y vuelve a abrir Docking Matrix desde el acceso directo del escritorio.

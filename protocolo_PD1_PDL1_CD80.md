@@ -1,5 +1,7 @@
 # Prueba de docking con negativo experimental contextual
 
+[English](protocolo_PD1_PDL1_CD80.en.md) | **Español** · [Guía principal](README.es.md)
+
 ## Pregunta
 
 ¿El flujo registra correctamente los pares y qué poses/scores produce HDOCK para una interacción positiva y una combinación sin unión detectable reportada en un ensayo publicado?
